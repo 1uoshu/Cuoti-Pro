@@ -30,7 +30,14 @@ def update_mastery(
     if record is None:
         if delta < 0:
             return
-        record = MasteryRecord(user_id=user_id, subject=subject, knowledge_point=knowledge_point)
+        record = MasteryRecord(
+            user_id=user_id,
+            subject=subject,
+            knowledge_point=knowledge_point,
+            correct_count=0,
+            wrong_count=0,
+            mastery_score=0,
+        )
         db.add(record)
     if is_correct:
         record.correct_count = max(0, record.correct_count + delta)

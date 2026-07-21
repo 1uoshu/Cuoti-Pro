@@ -4,10 +4,9 @@ from sqlalchemy.orm import Session
 
 from app.kernel.context import KernelContext
 from app.kernel.models import User
-from app.plugins.assignment_grading.workflow import regrade_text_question
 from app.plugins.layered_practice.models import PracticeAnswer, PracticeQuestion, PracticeTask
 from app.plugins.layered_practice.schemas import PracticeCreateRequest, PracticeSubmitRequest
-from app.plugins.layered_practice.workflow import generate_practice_questions
+from app.plugins.layered_practice.workflow import generate_practice_questions, grade_practice_answer
 from app.plugins.mastery_tracking.service import ensure_knowledge_point, update_mastery
 from app.plugins.wrong_question_book.service import get_recent_mistakes
 
@@ -28,6 +27,7 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
     try:
         payload = await generate_practice_questions(
             context,
+            str(user.id),
             request.subject,
             user.grade,
             request.knowledge_point,
@@ -102,7 +102,13 @@ async def submit_practice_answers(
     max_score = float(len(question_map) * 10)
     for input_answer in request.answers:
         question = question_map[input_answer.question_id]
-        result = await regrade_text_question(context, task.subject, question.content, input_answer.answer, question.standard_answer)
+        result = await grade_practice_answer(
+            context,
+            str(user.id),
+            task.subject,
+            {"content": question.content, "standard_answer": question.standard_answer},
+            input_answer.answer,
+        )
         score = min(float(result["score"]), 10.0)
         total_score += score
         db.add(

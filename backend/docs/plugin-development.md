@@ -35,6 +35,7 @@ Use `app.plugins.example` as the reference shape.
 - Use `context.capabilities.audit.record(...)` for security, authentication, upload, grading, and practice events. Do not store passwords, tokens, or full student answers in audit metadata.
 - Do not implement your own authentication. Use `app.kernel.auth.dependencies.get_current_user`.
 - Do not call model providers directly. Use `context.capabilities.llm`.
+- Do not call the external Agent service directly. Use `context.capabilities.agent_api`; the kernel owns its URL, JWT, timeout, and error handling.
 - Do not create a separate RAG or graph connection. Use `context.capabilities.rag` and `context.capabilities.knowledge_graph`.
 - Keep plugin `__init__.py` lightweight. Do not import routes, services, or models there.
 - Put user-facing routes in `routes.py`, business behavior in `service.py`, persistence models in `models.py`, and wire metadata in `plugin.py`.

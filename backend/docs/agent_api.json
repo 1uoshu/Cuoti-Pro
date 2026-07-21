@@ -1,0 +1,1100 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "智能错题学习系统 API",
+        "description": "5 大 Agent 工作流",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/api/health": {
+            "get": {
+                "summary": "Health",
+                "operationId": "health_api_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grade": {
+            "post": {
+                "summary": "Api Grade",
+                "operationId": "api_grade_api_grade_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GradeReq"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grade/image": {
+            "post": {
+                "summary": "Api Grade Img",
+                "operationId": "api_grade_img_api_grade_image_post",
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_grade_img_api_grade_image_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grade/pdf": {
+            "post": {
+                "summary": "Api Grade Pdf",
+                "operationId": "api_grade_pdf_api_grade_pdf_post",
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_grade_pdf_api_grade_pdf_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/practice/generate": {
+            "post": {
+                "summary": "Practice Gen",
+                "operationId": "practice_gen_api_practice_generate_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_practice_gen_api_practice_generate_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/practice/answer": {
+            "post": {
+                "summary": "Practice Ans",
+                "operationId": "practice_ans_api_practice_answer_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_practice_ans_api_practice_answer_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/review/{student_id}": {
+            "get": {
+                "summary": "Api Review",
+                "operationId": "api_review_api_review__student_id__get",
+                "parameters": [
+                    {
+                        "name": "student_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Student Id"
+                        }
+                    },
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "week",
+                            "title": "Period"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/exam/generate": {
+            "post": {
+                "summary": "Api Exam Gen",
+                "operationId": "api_exam_gen_api_exam_generate_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExamReq"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/exam/grade": {
+            "post": {
+                "summary": "Api Exam Grade",
+                "operationId": "api_exam_grade_api_exam_grade_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_exam_grade_api_exam_grade_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tracker/{student_id}": {
+            "get": {
+                "summary": "Api Tracker",
+                "operationId": "api_tracker_api_tracker__student_id__get",
+                "parameters": [
+                    {
+                        "name": "student_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Student Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/grade/stream": {
+            "post": {
+                "summary": "Api Grade Stream",
+                "operationId": "api_grade_stream_api_grade_stream_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GradeReq"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/practice/generate/stream": {
+            "post": {
+                "summary": "Api Practice Gen Stream",
+                "operationId": "api_practice_gen_stream_api_practice_generate_stream_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_practice_gen_stream_api_practice_generate_stream_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/practice/answer/stream": {
+            "post": {
+                "summary": "Api Practice Ans Stream",
+                "operationId": "api_practice_ans_stream_api_practice_answer_stream_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_practice_ans_stream_api_practice_answer_stream_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/review/stream": {
+            "post": {
+                "summary": "Api Review Stream",
+                "operationId": "api_review_stream_api_review_stream_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_review_stream_api_review_stream_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/exam/generate/stream": {
+            "post": {
+                "summary": "Api Exam Gen Stream",
+                "operationId": "api_exam_gen_stream_api_exam_generate_stream_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_exam_gen_stream_api_exam_generate_stream_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tracker/stream": {
+            "post": {
+                "summary": "Api Tracker Stream",
+                "operationId": "api_tracker_stream_api_tracker_stream_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_api_tracker_stream_api_tracker_stream_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mistakes/{student_id}": {
+            "get": {
+                "summary": "Api Mistakes",
+                "operationId": "api_mistakes_api_mistakes__student_id__get",
+                "parameters": [
+                    {
+                        "name": "student_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Student Id"
+                        }
+                    },
+                    {
+                        "name": "days",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Days"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mistakes/{mistake_id}/review": {
+            "post": {
+                "summary": "Api Review Mistake",
+                "operationId": "api_review_mistake_api_mistakes__mistake_id__review_post",
+                "parameters": [
+                    {
+                        "name": "mistake_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Mistake Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/review/export/md/{student_id}": {
+            "get": {
+                "summary": "Api Review Export Md",
+                "operationId": "api_review_export_md_api_review_export_md__student_id__get",
+                "parameters": [
+                    {
+                        "name": "student_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Student Id"
+                        }
+                    },
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "week",
+                            "title": "Period"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/review/export/pdf/{student_id}": {
+            "get": {
+                "summary": "Api Review Export Pdf",
+                "operationId": "api_review_export_pdf_api_review_export_pdf__student_id__get",
+                "parameters": [
+                    {
+                        "name": "student_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Student Id"
+                        }
+                    },
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "week",
+                            "title": "Period"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Body_api_exam_gen_stream_api_exam_generate_stream_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "exam_type": {
+                        "type": "string",
+                        "title": "Exam Type",
+                        "default": "quiz"
+                    },
+                    "knowledge_points": {
+                        "type": "string",
+                        "title": "Knowledge Points",
+                        "default": ""
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id"
+                ],
+                "title": "Body_api_exam_gen_stream_api_exam_generate_stream_post"
+            },
+            "Body_api_exam_grade_api_exam_grade_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "exam_json": {
+                        "type": "string",
+                        "title": "Exam Json"
+                    },
+                    "answers_json": {
+                        "type": "string",
+                        "title": "Answers Json"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "exam_json",
+                    "answers_json"
+                ],
+                "title": "Body_api_exam_grade_api_exam_grade_post"
+            },
+            "Body_api_grade_img_api_grade_image_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "question": {
+                        "type": "string",
+                        "title": "Question"
+                    },
+                    "image": {
+                        "type": "string",
+                        "contentMediaType": "application/octet-stream",
+                        "title": "Image"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "title": "Subject",
+                        "default": "数学"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "question",
+                    "image"
+                ],
+                "title": "Body_api_grade_img_api_grade_image_post"
+            },
+            "Body_api_grade_pdf_api_grade_pdf_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "question": {
+                        "type": "string",
+                        "title": "Question"
+                    },
+                    "pdf": {
+                        "type": "string",
+                        "contentMediaType": "application/octet-stream",
+                        "title": "Pdf"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "title": "Subject",
+                        "default": "数学"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "question",
+                    "pdf"
+                ],
+                "title": "Body_api_grade_pdf_api_grade_pdf_post"
+            },
+            "Body_api_practice_ans_stream_api_practice_answer_stream_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "question_json": {
+                        "type": "string",
+                        "title": "Question Json"
+                    },
+                    "student_answer": {
+                        "type": "string",
+                        "title": "Student Answer"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "question_json",
+                    "student_answer"
+                ],
+                "title": "Body_api_practice_ans_stream_api_practice_answer_stream_post"
+            },
+            "Body_api_practice_gen_stream_api_practice_generate_stream_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "weak_points": {
+                        "type": "string",
+                        "title": "Weak Points"
+                    },
+                    "difficulty": {
+                        "type": "string",
+                        "title": "Difficulty",
+                        "default": "base"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "weak_points"
+                ],
+                "title": "Body_api_practice_gen_stream_api_practice_generate_stream_post"
+            },
+            "Body_api_review_stream_api_review_stream_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "period": {
+                        "type": "string",
+                        "title": "Period",
+                        "default": "week"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id"
+                ],
+                "title": "Body_api_review_stream_api_review_stream_post"
+            },
+            "Body_api_tracker_stream_api_tracker_stream_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id"
+                ],
+                "title": "Body_api_tracker_stream_api_tracker_stream_post"
+            },
+            "Body_practice_ans_api_practice_answer_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "question_json": {
+                        "type": "string",
+                        "title": "Question Json"
+                    },
+                    "student_answer": {
+                        "type": "string",
+                        "title": "Student Answer"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "question_json",
+                    "student_answer"
+                ],
+                "title": "Body_practice_ans_api_practice_answer_post"
+            },
+            "Body_practice_gen_api_practice_generate_post": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "weak_points": {
+                        "type": "string",
+                        "title": "Weak Points"
+                    },
+                    "difficulty": {
+                        "type": "string",
+                        "title": "Difficulty",
+                        "default": "base"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "weak_points"
+                ],
+                "title": "Body_practice_gen_api_practice_generate_post"
+            },
+            "ExamReq": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "exam_type": {
+                        "type": "string",
+                        "title": "Exam Type",
+                        "default": "quiz"
+                    },
+                    "knowledge_points": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Knowledge Points",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id"
+                ],
+                "title": "ExamReq"
+            },
+            "GradeReq": {
+                "properties": {
+                    "student_id": {
+                        "type": "string",
+                        "title": "Student Id"
+                    },
+                    "question": {
+                        "type": "string",
+                        "title": "Question"
+                    },
+                    "student_answer": {
+                        "type": "string",
+                        "title": "Student Answer",
+                        "default": ""
+                    },
+                    "subject": {
+                        "type": "string",
+                        "title": "Subject",
+                        "default": "数学"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "student_id",
+                    "question"
+                ],
+                "title": "GradeReq"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
+        }
+    }
+}

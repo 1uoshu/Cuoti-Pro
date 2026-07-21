@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.kernel.agent import AgentRuntime
+from app.kernel.agent import AgentAPIClient, AgentRuntime
 from app.kernel.audit import AuditLogger
 from app.kernel.config import Settings, get_settings
 from app.kernel.database import DatabaseSessions
@@ -20,6 +20,7 @@ class KernelCapabilities:
     jobs: JobRunner
     llm: LLMGateway
     agent_runtime: AgentRuntime
+    agent_api: AgentAPIClient | None
     rag: RAGService
     knowledge_graph: KnowledgeGraphService
     storage: UploadStorage
@@ -44,6 +45,15 @@ def build_kernel_context(settings: Settings | None = None) -> KernelContext:
             jobs=JobRunner(),
             llm=LLMGateway(resolved_settings),
             agent_runtime=AgentRuntime(),
+            agent_api=(
+                AgentAPIClient(
+                    resolved_settings.agent_api_base_url,
+                    resolved_settings.agent_api_timeout_seconds,
+                    api_key=resolved_settings.agent_api_key,
+                )
+                if resolved_settings.agent_api_base_url
+                else None
+            ),
             rag=RAGService(),
             knowledge_graph=KnowledgeGraphService(),
             storage=UploadStorage(resolved_settings),

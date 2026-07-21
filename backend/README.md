@@ -5,7 +5,14 @@ FastAPI backend for the Smart Learning Agent project. The codebase is organized 
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Configure `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` for the GPT-5.5 gateway.
+2. Configure the external Agent connection described in `docs/agent-integration.md`:
+
+   - `AGENT_API_BASE_URL`: Agent service origin, without a trailing `/api`.
+   - `AGENT_API_KEY`: JWT sent as `Authorization: Bearer <token>`.
+   - `AGENT_API_TIMEOUT_SECONDS`: request timeout for OCR and Agent workflows.
+
+   If `AGENT_API_BASE_URL` is empty, the backend keeps the existing local fallback and uses
+   `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` directly.
 3. Install dependencies:
 
    ```bash
@@ -27,6 +34,8 @@ The API documentation is available at `http://localhost:8000/docs`.
 - `app/plugins/example`: reference plugin for backend developers.
 - `docs/plugin-development.md`: plugin rules and extension guide.
 - `docs/api.md`: frontend-facing API summary.
+- `docs/agent-integration.md`: backend-to-Agent mapping, validation, and failure behavior.
+- `docs/agent_api.json`: source OpenAPI contract supplied by the Agent service.
 
 ## Current plugins
 

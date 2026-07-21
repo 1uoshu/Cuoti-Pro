@@ -64,7 +64,15 @@ def process_assignment_task(task_id: str) -> None:
             user = db.get(User, assignment.user_id)
             if user is None:
                 raise RuntimeError("assignment owner does not exist")
-            payload = asyncio.run(run_grading_workflow(context, assignment.file_path, assignment.subject, user.grade))
+            payload = asyncio.run(
+                run_grading_workflow(
+                    context,
+                    assignment.file_path,
+                    assignment.subject,
+                    user.grade,
+                    student_id=str(user.id),
+                )
+            )
 
             _set_task_state(task, assignment, "保存批改结果", 85)
             db.commit()
@@ -174,6 +182,7 @@ async def update_and_regrade_question(
         question.content,
         question.student_answer,
         question.correct_answer,
+        student_id=str(user.id),
     )
     question.is_correct = bool(result["is_correct"])
     question.score = float(result["score"])
