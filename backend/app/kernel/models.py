@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.kernel.database import Base
+
+
+class TimestampMixin:
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    nickname: Mapped[str] = mapped_column(String(64), nullable=False)
+    grade: Mapped[Optional[str]] = mapped_column(String(32))
+    school: Mapped[Optional[str]] = mapped_column(String(128))
+    main_subject: Mapped[Optional[str]] = mapped_column(String(32))
+
+
+class AuditLog(TimestampMixin, Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), default="success", index=True, nullable=False)
+    actor_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), index=True)
+    actor_username: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    resource_type: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    resource_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    summary: Mapped[Optional[str]] = mapped_column(String(255))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+    user_agent: Mapped[Optional[str]] = mapped_column(String(255))
+    event_metadata: Mapped[dict] = mapped_column("metadata", JSON, default=dict, nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
