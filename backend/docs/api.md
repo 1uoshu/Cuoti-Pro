@@ -1,5 +1,7 @@
 # Backend API
 
+> 前端联调的完整中文合同已冻结在仓库根目录的 [API接口文档.md](../../API接口文档.md)。本文件保留后端目录内的快速摘要；字段、状态、错误码和边界以根目录合同为准。
+
 Base URL for local development: `http://localhost:8000`.
 
 All business endpoints live under `/api` and return the same envelope:
@@ -346,7 +348,7 @@ Response data:
     "knowledge_point": "导数单调性",
     "wrong_reason": "忽略定义域",
     "wrong_count": 1,
-    "status": "active",
+    "status": "unreviewed",
     "question": {}
   }
 ]

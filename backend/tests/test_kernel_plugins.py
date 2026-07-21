@@ -59,6 +59,21 @@ def test_validation_errors_use_api_envelope():
     assert "errors" in body["data"]
 
 
+def test_profile_update_rejects_null_nickname_at_validation_boundary():
+    with TestClient(app) as client:
+        token = _register_user(client)
+        response = client.put(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"nickname": None},
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == 4220
+    assert any(error["loc"][-1] == "nickname" for error in body["data"]["errors"])
+
+
 def test_authenticated_scene_read_endpoints_return_envelopes():
     with TestClient(app) as client:
         token = _register_user(client)
