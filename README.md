@@ -38,7 +38,19 @@ Frontend developers should read `backend/docs/api.md` and `docs/frontend-integra
 
 ## Quick Start
 
-Backend:
+Backend and MySQL with Docker Compose:
+
+```bash
+cp .env.compose.example .env
+# Fill in OPENAI_API_KEY and replace the demo secrets.
+docker compose up --build -d
+```
+
+The backend starts at `http://localhost:8000`; this Compose delivery intentionally does
+not build or modify the frontend. See `backend/docs/deployment.md` for health checks,
+persistence, and production notes.
+
+Local backend development:
 
 ```bash
 cd backend
@@ -46,7 +58,7 @@ uv sync
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
-Frontend:
+Local frontend development:
 
 ```bash
 cd frontend

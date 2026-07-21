@@ -1,0 +1,79 @@
+name: smart-learning-agent
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: smart_learning_agent
+      MYSQL_USER: smart_learning
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-smart-learning-demo-password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-smart-learning-demo-root-password}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      APP_NAME: Smart Learning Agent API
+      APP_ENV: production
+      DATABASE_URL: mysql+pymysql://smart_learning:${MYSQL_PASSWORD:-smart-learning-demo-password}@mysql:3306/smart_learning_agent?charset=utf8mb4
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-demo-only-change-before-production}
+      JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-12}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      AGENT_API_BASE_URL: ${AGENT_API_BASE_URL:-}
+      AGENT_API_KEY: ${AGENT_API_KEY:-}
+      AGENT_API_TIMEOUT_SECONDS: ${AGENT_API_TIMEOUT_SECONDS:-120}
+      STORAGE_DIR: /app/storage
+      AUTO_CREATE_TABLES: "false"
+      REVIEW_CONFIDENCE_THRESHOLD: ${REVIEW_CONFIDENCE_THRESHOLD:-0.85}
+      SANDBOX_TIMEOUT_SECONDS: ${SANDBOX_TIMEOUT_SECONDS:-2}
+      SANDBOX_MEMORY_LIMIT_MB: ${SANDBOX_MEMORY_LIMIT_MB:-256}
+      SANDBOX_MAX_CODE_CHARS: ${SANDBOX_MAX_CODE_CHARS:-8000}
+      SANDBOX_MAX_OUTPUT_CHARS: ${SANDBOX_MAX_OUTPUT_CHARS:-8000}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - upload_data:/app/storage
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  mysql_data:
+  upload_data:

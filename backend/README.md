@@ -5,14 +5,14 @@ FastAPI backend for the Smart Learning Agent project. The codebase is organized 
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Configure the external Agent connection described in `docs/agent-integration.md`:
+2. Configure the built-in Agent:
 
-   - `AGENT_API_BASE_URL`: Agent service origin, without a trailing `/api`.
-   - `AGENT_API_KEY`: JWT sent as `Authorization: Bearer <token>`.
-   - `AGENT_API_TIMEOUT_SECONDS`: request timeout for OCR and Agent workflows.
+   - `OPENAI_API_KEY`: OpenAI-compatible model key.
+   - `OPENAI_BASE_URL`: optional compatible endpoint.
+   - `OPENAI_MODEL`: a model that supports image input for scene 1.
 
-   If `AGENT_API_BASE_URL` is empty, the backend keeps the existing local fallback and uses
-   `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` directly.
+   Leave `AGENT_API_BASE_URL` empty for the built-in Agent. The `AGENT_API_*` settings are
+   only for the optional adapter documented in `docs/agent-integration.md`.
 3. Install dependencies:
 
    ```bash
@@ -35,6 +35,9 @@ The API documentation is available at `http://localhost:8000/docs`.
 - `docs/plugin-development.md`: plugin rules and extension guide.
 - `docs/api.md`: frontend-facing API summary.
 - `docs/agent-integration.md`: backend-to-Agent mapping, validation, and failure behavior.
+- `docs/builtin-agent.md`: built-in LangGraph flows, verification policy, and sandbox boundary.
+- `docs/deployment.md`: backend and MySQL Docker Compose deployment.
+- `docs/evaluation.md`: automated evidence and real-sample evaluation template.
 - `docs/agent_api.json`: source OpenAPI contract supplied by the Agent service.
 
 ## Current plugins

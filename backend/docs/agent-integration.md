@@ -15,7 +15,8 @@ The kernel owns one `AgentAPIClient`, exposed to plugins through `KernelCapabili
 - Configure the service with `AGENT_API_BASE_URL`, `AGENT_API_KEY`, and `AGENT_API_TIMEOUT_SECONDS`.
 - Send the JWT only as `Authorization: Bearer <token>`.
 - Never include the JWT in URLs, audit metadata, exception messages, or stored learning records.
-- If `AGENT_API_BASE_URL` is empty, preserve the existing kernel LLM fallback for local development.
+- If `AGENT_API_BASE_URL` is empty, use the project-owned built-in LangGraph Agent with
+  `OPENAI_*`; this is the default delivery mode.
 - Business plugins keep their existing public APIs and database models.
 
 ## Scene Mapping
@@ -47,7 +48,8 @@ Assignment totals and weak points may be deterministically derived from validate
 - Network, timeout, non-JSON, HTTP error, and validation failures become explicit Agent errors.
 - Assignment background tasks become `failed` and retain a bounded error message for diagnosis.
 - Invalid grading output is not persisted as completed work and does not update mastery.
-- Missing or low OCR confidence marks a question for manual review; it does not update mastery or enter the wrong-question book until regrading confirms it.
+- Missing or low confidence returns `confidence_warning` so the user can judge the result.
+  It does not create a blocking manual-review workflow.
 - Practice generation remains `failed` when its result cannot satisfy the requested question count.
 - The external Agent service never receives the student's backend JWT; it receives only its own configured service JWT and a non-secret student identifier.
 
