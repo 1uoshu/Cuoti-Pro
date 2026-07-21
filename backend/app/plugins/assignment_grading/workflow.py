@@ -1,11 +1,10 @@
 import base64
-import json
 from pathlib import Path
 from typing import Any, TypedDict
 
 import fitz
 
-from app.kernel.agent import AgentStep
+from app.kernel.agent import AgentStep, as_float, first, normalize_question_grade, optional_text, required_text
 from app.kernel.context import KernelContext
 from app.plugins.assignment_grading.schemas import ModelGradePayload
 
@@ -153,29 +152,8 @@ async def regrade_text_question(
     return data
 
 
-def normalize_question_grade(payload: dict[str, Any]) -> dict[str, Any]:
-    source = _find_mapping(payload, required_any=("is_correct", "correct"))
-    is_correct = _as_bool(_first(source, "is_correct", "correct"), "is_correct")
-    score = _as_float(_first(source, "score", default=10 if is_correct else 0), "score")
-    max_score = _as_float(_first(source, "max_score", "full_score", default=max(10, score)), "max_score")
-    if score < 0 or max_score <= 0 or score > max_score:
-        raise ValueError("Agent grade score is outside the valid range")
-    confidence = _as_float(_first(source, "confidence", default=1), "confidence")
-    if not 0 <= confidence <= 1:
-        raise ValueError("Agent grade confidence is outside the valid range")
-    explanation = _required_text(source, "explanation", "feedback", "reason", "analysis")
-    return {
-        "is_correct": is_correct,
-        "score": score,
-        "max_score": max_score,
-        "explanation": explanation,
-        "confidence": confidence,
-    }
-
-
 def _normalize_agent_grade_payload(payload: dict[str, Any], subject: str) -> ModelGradePayload:
-    source = _find_mapping(payload, required_any=("questions",))
-    raw_questions = source.get("questions")
+    raw_questions = payload.get("questions")
     if not isinstance(raw_questions, list) or not raw_questions:
         raise ValueError("Agent grading result must contain a non-empty questions list")
 
@@ -183,28 +161,28 @@ def _normalize_agent_grade_payload(payload: dict[str, Any], subject: str) -> Mod
     for index, raw_question in enumerate(raw_questions, start=1):
         if not isinstance(raw_question, dict):
             raise ValueError("Agent grading question must be a JSON object")
-        grade = normalize_question_grade(raw_question)
+        grade = normalize_question_grade(raw_question, default_confidence=0)
         questions.append(
             {
-                "question_number": str(_first(raw_question, "question_number", "number", default=index)),
-                "question_text": _required_text(raw_question, "question_text", "content", "question"),
-                "student_answer": _optional_text(raw_question, "student_answer", "answer_text"),
-                "correct_answer": _optional_text(raw_question, "correct_answer", "standard_answer", "answer"),
-                "question_type": _optional_text(raw_question, "question_type", "type"),
-                "knowledge_point": _optional_text(raw_question, "knowledge_point", "knowledge"),
+                "question_number": str(first(raw_question, "question_number", "number", default=index)),
+                "question_text": required_text(raw_question, "question_text", "content", "question"),
+                "student_answer": optional_text(raw_question, "student_answer", "answer_text"),
+                "correct_answer": optional_text(raw_question, "correct_answer", "standard_answer", "answer"),
+                "question_type": optional_text(raw_question, "question_type", "type"),
+                "knowledge_point": required_text(raw_question, "knowledge_point", "knowledge"),
                 **grade,
             }
         )
 
-    total_score = _as_float(
-        _first(source, "total_score", default=sum(item["max_score"] for item in questions)),
+    total_score = as_float(
+        first(payload, "total_score", default=sum(item["max_score"] for item in questions)),
         "total_score",
     )
-    student_score = _as_float(
-        _first(source, "student_score", "score", default=sum(item["score"] for item in questions)),
+    student_score = as_float(
+        first(payload, "student_score", "score", default=sum(item["score"] for item in questions)),
         "student_score",
     )
-    raw_weak_points = _first(source, "weak_points", default=None)
+    raw_weak_points = first(payload, "weak_points", default=None)
     if isinstance(raw_weak_points, list):
         weak_points = [str(item).strip() for item in raw_weak_points if str(item).strip()]
     else:
@@ -215,7 +193,7 @@ def _normalize_agent_grade_payload(payload: dict[str, Any], subject: str) -> Mod
         ]
     weak_points = list(dict.fromkeys(weak_points))
     overall_comment = str(
-        _first(source, "overall_comment", "comment", "summary", default=f"已完成 {len(questions)} 道题批改")
+        first(payload, "overall_comment", "comment", "summary", default=f"已完成 {len(questions)} 道题批改")
     ).strip()
     return ModelGradePayload.model_validate(
         {
@@ -227,72 +205,3 @@ def _normalize_agent_grade_payload(payload: dict[str, Any], subject: str) -> Mod
             "weak_points": weak_points,
         }
     )
-
-
-def _find_mapping(payload: dict[str, Any], *, required_any: tuple[str, ...]) -> dict[str, Any]:
-    queue: list[dict[str, Any]] = [payload]
-    while queue:
-        candidate = queue.pop(0)
-        if any(key in candidate for key in required_any):
-            return candidate
-        for key in ("data", "result", "output", "final_answer", "response", "grade_result"):
-            nested = _json_mapping(candidate.get(key))
-            if nested is not None:
-                queue.append(nested)
-    raise ValueError(f"Agent response is missing one of: {', '.join(required_any)}")
-
-
-def _json_mapping(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, dict):
-        return value
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if "```" in text:
-        sections = text.split("```")
-        if len(sections) >= 3:
-            text = sections[1].removeprefix("json").strip()
-    try:
-        parsed = json.loads(text)
-    except ValueError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
-def _first(mapping: dict[str, Any], *keys: str, default: Any = None) -> Any:
-    for key in keys:
-        if key in mapping and mapping[key] is not None:
-            return mapping[key]
-    return default
-
-
-def _required_text(mapping: dict[str, Any], *keys: str) -> str:
-    value = _optional_text(mapping, *keys)
-    if not value:
-        raise ValueError(f"Agent response is missing text field: {', '.join(keys)}")
-    return value
-
-
-def _optional_text(mapping: dict[str, Any], *keys: str) -> str | None:
-    value = _first(mapping, *keys)
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _as_bool(value: Any, field: str) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
-        return value.strip().lower() == "true"
-    raise ValueError(f"Agent response field {field} must be a boolean")
-
-
-def _as_float(value: Any, field: str) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"Agent response field {field} must be numeric")
-    try:
-        return float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"Agent response field {field} must be numeric") from error

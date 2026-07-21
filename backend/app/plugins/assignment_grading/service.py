@@ -139,15 +139,15 @@ def persist_grade_payload(context: KernelContext, db: Session, assignment: Assig
         db.flush()
         if not question.needs_review:
             update_mastery(db, assignment.user_id, assignment.subject, point, item.is_correct)
-        if not item.is_correct:
-            upsert_wrong_question(
-                db,
-                user_id=assignment.user_id,
-                question_id=question.id,
-                subject=assignment.subject,
-                knowledge_point=point,
-                wrong_reason=item.explanation,
-            )
+            if not item.is_correct:
+                upsert_wrong_question(
+                    db,
+                    user_id=assignment.user_id,
+                    question_id=question.id,
+                    subject=assignment.subject,
+                    knowledge_point=point,
+                    wrong_reason=item.explanation,
+                )
 
     assignment.total_score = payload.total_score
     assignment.student_score = payload.student_score

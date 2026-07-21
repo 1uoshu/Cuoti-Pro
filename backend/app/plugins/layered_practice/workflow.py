@@ -1,7 +1,8 @@
 from typing import Any
 
+from app.kernel.agent import normalize_question_grade, required_text
 from app.kernel.context import KernelContext
-from app.plugins.assignment_grading.workflow import normalize_question_grade, regrade_text_question
+from app.plugins.assignment_grading.workflow import regrade_text_question
 from app.plugins.layered_practice.schemas import ModelPracticePayload
 
 
@@ -24,16 +25,20 @@ async def generate_practice_questions(
     recent_mistakes: list[str],
 ) -> ModelPracticePayload:
     if context.capabilities.agent_api is not None:
-        payload = await context.capabilities.agent_api.generate_practice(
-            student_id=student_id,
-            weak_points=knowledge_point,
-            difficulty=DIFFICULTY_AGENT_VALUES[difficulty],
-        )
-        questions = _normalize_agent_practice_questions(payload)
-        result = ModelPracticePayload.model_validate({"questions": questions})
-        if len(result.questions) != count:
+        unique_questions: dict[str, dict[str, str]] = {}
+        attempts = 0
+        while len(unique_questions) < count and attempts < count * 3:
+            attempts += 1
+            payload = await context.capabilities.agent_api.generate_practice(
+                student_id=student_id,
+                weak_points=knowledge_point,
+                difficulty=DIFFICULTY_AGENT_VALUES[difficulty],
+            )
+            for question in _normalize_agent_practice_questions(payload):
+                unique_questions.setdefault(question["content"], question)
+        if len(unique_questions) < count:
             raise ValueError("Agent practice question count does not match request")
-        return result
+        return ModelPracticePayload.model_validate({"questions": list(unique_questions.values())[:count]})
 
     prompt = f"""为{grade or ""}{subject}学生生成 {count} 道“{knowledge_point}”的“{difficulty}”练习题。
 历史薄弱表现：{recent_mistakes or ["暂无历史错题"]}。
@@ -82,12 +87,6 @@ async def grade_practice_answer(
 
 def _normalize_agent_practice_questions(payload: dict[str, Any]) -> list[dict[str, str]]:
     raw_questions: Any = payload.get("questions")
-    if raw_questions is None:
-        for wrapper in ("data", "result", "output", "response"):
-            nested = payload.get(wrapper)
-            if isinstance(nested, dict) and isinstance(nested.get("questions"), list):
-                raw_questions = nested["questions"]
-                break
     if not isinstance(raw_questions, list) or not raw_questions:
         raise ValueError("Agent practice result must contain a non-empty questions list")
 
@@ -97,17 +96,9 @@ def _normalize_agent_practice_questions(payload: dict[str, Any]) -> list[dict[st
             raise ValueError("Agent practice question must be a JSON object")
         questions.append(
             {
-                "content": _required_text(item, "content", "question", "question_text"),
-                "standard_answer": _required_text(item, "standard_answer", "answer", "correct_answer"),
-                "explanation": _required_text(item, "explanation", "analysis", "reason"),
+                "content": required_text(item, "content", "question", "question_text"),
+                "standard_answer": required_text(item, "standard_answer", "answer", "correct_answer"),
+                "explanation": required_text(item, "explanation", "analysis", "reason"),
             }
         )
     return questions
-
-
-def _required_text(mapping: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = mapping.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    raise ValueError(f"Agent response is missing text field: {', '.join(keys)}")

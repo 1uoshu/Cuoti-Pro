@@ -120,11 +120,7 @@ class AgentAPIClient:
             raise AgentAPIError("Agent API response is not valid JSON") from error
         if not isinstance(payload, dict):
             raise AgentAPIError("Agent API response must be a JSON object")
-        for wrapper in ("data", "result"):
-            nested = payload.get(wrapper)
-            if isinstance(nested, dict):
-                return nested
-        return payload
+        return _unwrap_response(payload)
 
 
 def _image_content_type(path: Path) -> str:
@@ -133,6 +129,40 @@ def _image_content_type(path: Path) -> str:
         ".jpeg": "image/jpeg",
         ".png": "image/png",
     }.get(path.suffix.lower(), "application/octet-stream")
+
+
+def _unwrap_response(payload: dict[str, Any]) -> dict[str, Any]:
+    current = payload
+    wrappers = ("data", "result", "output", "final_answer", "response", "grade_result")
+    for _ in range(10):
+        for wrapper in wrappers:
+            if wrapper not in current:
+                continue
+            nested = _decode_mapping(current[wrapper])
+            if nested is None:
+                raise AgentAPIError(f"Agent API response field {wrapper} must contain a JSON object")
+            current = nested
+            break
+        else:
+            return current
+    raise AgentAPIError("Agent API response nesting is too deep")
+
+
+def _decode_mapping(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if "```" in text:
+        sections = text.split("```")
+        if len(sections) >= 3:
+            text = sections[1].removeprefix("json").strip()
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _remote_error_message(response: httpx.Response, api_key: str) -> str:

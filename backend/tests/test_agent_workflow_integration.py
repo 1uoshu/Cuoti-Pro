@@ -2,6 +2,8 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.kernel.agent import AgentRuntime
 from app.plugins.assignment_grading.workflow import regrade_text_question, run_grading_workflow
 from app.plugins.layered_practice.workflow import generate_practice_questions, grade_practice_answer
@@ -92,7 +94,30 @@ def test_scene_one_grading_uses_agent_pdf_api_and_normalizes_result(tmp_path: Pa
     assert result.student_score == 0
     assert result.questions[0].question_text == "求 1+1"
     assert result.questions[0].explanation == "计算错误"
+    assert result.questions[0].confidence == 0
     assert result.weak_points == ["整数加法"]
+
+
+def test_scene_one_agent_grading_requires_a_knowledge_point(tmp_path: Path):
+    class MissingKnowledgeAgent(FakeAgentAPI):
+        async def grade_file(self, **kwargs):
+            payload = await super().grade_file(**kwargs)
+            payload["questions"][0].pop("knowledge_point")
+            return payload
+
+    image_path = tmp_path / "answer.png"
+    image_path.write_bytes(b"image")
+
+    with pytest.raises(ValueError, match="knowledge_point"):
+        asyncio.run(
+            run_grading_workflow(
+                _context(MissingKnowledgeAgent()),
+                str(image_path),
+                "数学",
+                "高三",
+                student_id="42",
+            )
+        )
 
 
 def test_scene_one_text_regrade_uses_agent_grade_endpoint():
@@ -144,6 +169,36 @@ def test_scene_two_generation_maps_difficulty_and_normalizes_questions():
     )
     assert [item.content for item in result.questions] == ["题目 A", "题目 B"]
     assert result.questions[0].standard_answer == "答案 A"
+
+
+def test_scene_two_generation_collects_single_question_agent_responses():
+    class SingleQuestionAgent(FakeAgentAPI):
+        async def generate_practice(self, **kwargs):
+            self.calls.append(("generate_practice", kwargs))
+            number = len(self.calls)
+            return {
+                "questions": [
+                    {"question": f"题目 {number}", "answer": f"答案 {number}", "analysis": f"解析 {number}"}
+                ]
+            }
+
+    agent_api = SingleQuestionAgent()
+
+    result = asyncio.run(
+        generate_practice_questions(
+            _context(agent_api),
+            "student-8",
+            "数学",
+            "高三",
+            "导数",
+            "基础补漏",
+            3,
+            [],
+        )
+    )
+
+    assert len(agent_api.calls) == 3
+    assert [item.content for item in result.questions] == ["题目 1", "题目 2", "题目 3"]
 
 
 def test_scene_two_answer_uses_practice_answer_endpoint():

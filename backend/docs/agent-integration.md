@@ -29,6 +29,7 @@ The kernel owns one `AgentAPIClient`, exposed to plugins through `KernelCapabili
 | Practice answer grading | `POST /api/practice/answer` | form `student_id`, `question_json`, `student_answer` |
 
 Difficulty mapping is explicit: `基础补漏 -> base`, `同类变式 -> variant`, `综合提升 -> advanced`, and `高考真题 -> exam`.
+The Agent contract has no `question_count` field. The adapter therefore collects and de-duplicates responses until it reaches the backend request count, with a bounded maximum of three attempts per requested question. It trims extra valid questions and fails if the requested count still cannot be met.
 
 ## Response Boundary
 
@@ -46,6 +47,7 @@ Assignment totals and weak points may be deterministically derived from validate
 - Network, timeout, non-JSON, HTTP error, and validation failures become explicit Agent errors.
 - Assignment background tasks become `failed` and retain a bounded error message for diagnosis.
 - Invalid grading output is not persisted as completed work and does not update mastery.
+- Missing or low OCR confidence marks a question for manual review; it does not update mastery or enter the wrong-question book until regrading confirms it.
 - Practice generation remains `failed` when its result cannot satisfy the requested question count.
 - The external Agent service never receives the student's backend JWT; it receives only its own configured service JWT and a non-secret student identifier.
 

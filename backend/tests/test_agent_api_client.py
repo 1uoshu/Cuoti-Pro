@@ -164,6 +164,24 @@ def test_agent_client_rejects_non_object_json_response():
         )
 
 
+def test_agent_client_unwraps_nested_and_fenced_json_output():
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"data": {"output": '```json\n{"questions":[{"content":"题目"}]}\n```'}},
+        )
+
+    result = asyncio.run(
+        _client(httpx.MockTransport(handler)).generate_practice(
+            student_id="student-2",
+            weak_points="导数",
+            difficulty="base",
+        )
+    )
+
+    assert result == {"questions": [{"content": "题目"}]}
+
+
 def test_kernel_exposes_agent_client_only_when_base_url_is_configured(tmp_path: Path):
     disabled = build_kernel_context(Settings(storage_dir=str(tmp_path / "disabled")))
     enabled = build_kernel_context(

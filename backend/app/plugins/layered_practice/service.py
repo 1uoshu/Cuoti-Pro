@@ -109,7 +109,9 @@ async def submit_practice_answers(
             {"content": question.content, "standard_answer": question.standard_answer},
             input_answer.answer,
         )
-        score = min(float(result["score"]), 10.0)
+        raw_score = float(result["score"])
+        raw_max_score = float(result["max_score"])
+        score = round(min(raw_score / raw_max_score * 10, 10.0), 2)
         total_score += score
         db.add(
             PracticeAnswer(

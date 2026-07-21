@@ -21,6 +21,7 @@ class SceneAgentAPI:
                     "max_score": 10,
                     "correct": False,
                     "reason": "计算错误",
+                    "confidence": 0.99,
                 },
                 {
                     "number": "2",
@@ -32,6 +33,7 @@ class SceneAgentAPI:
                     "max_score": 10,
                     "correct": True,
                     "reason": "回答正确",
+                    "confidence": 0.99,
                 },
             ]
         }
@@ -48,8 +50,28 @@ class SceneAgentAPI:
         correct = kwargs["student_answer"] == kwargs["question"]["standard_answer"]
         return {
             "correct": correct,
-            "score": 10 if correct else 0,
+            "score": 4 if correct else 0,
+            "max_score": 5 if correct else 10,
             "reason": "回答正确" if correct else "答案不正确",
+        }
+
+
+class LowConfidenceAgentAPI(SceneAgentAPI):
+    async def grade_file(self, **_):
+        return {
+            "questions": [
+                {
+                    "number": "1",
+                    "question": "识别不清的手写公式",
+                    "student_answer": "?",
+                    "answer": "待确认",
+                    "knowledge_point": "函数",
+                    "score": 0,
+                    "max_score": 10,
+                    "correct": False,
+                    "reason": "图像识别置信度不足",
+                }
+            ]
         }
 
 
@@ -116,8 +138,40 @@ def test_scene_one_and_two_complete_through_public_backend_apis():
             assert submitted.status_code == 200
             result = submitted.json()["data"]
             assert result["status"] == "completed"
-            assert result["student_score"] == 50
+            assert result["student_score"] == 40
             assert [item["answers"][0]["is_correct"] for item in result["questions"]] == [True, False]
+    finally:
+        set_kernel_context(original_context)
+
+
+def test_low_confidence_ocr_waits_for_review_before_learning_updates():
+    original_context = get_kernel_context()
+    test_context = replace(
+        original_context,
+        capabilities=replace(original_context.capabilities, agent_api=LowConfidenceAgentAPI()),
+    )
+    set_kernel_context(test_context)
+    try:
+        with TestClient(app) as client:
+            token = _register(client)
+            headers = {"Authorization": f"Bearer {token}"}
+            upload = client.post(
+                "/api/assignments",
+                headers=headers,
+                data={"subject": "数学", "title": "低置信度作业"},
+                files={"file": ("unclear.png", b"unclear-image", "image/png")},
+            )
+            assignment_id = upload.json()["data"]["assignment_id"]
+
+            assignment = client.get(f"/api/assignments/{assignment_id}", headers=headers).json()["data"]
+            wrong_questions = client.get("/api/wrong-questions", headers=headers).json()["data"]
+            mastery = client.get("/api/mastery", headers=headers).json()["data"]
+
+            assert assignment["status"] == "completed"
+            assert assignment["questions"][0]["confidence"] == 0
+            assert assignment["questions"][0]["needs_review"] is True
+            assert wrong_questions == []
+            assert mastery == []
     finally:
         set_kernel_context(original_context)
 
