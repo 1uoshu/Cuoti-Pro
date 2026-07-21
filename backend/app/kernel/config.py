@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str | None = None
     openai_model: str = ""
+    openai_reasoning_effort: str = "xhigh"
+    openai_disable_response_storage: bool = True
+    openai_timeout_seconds: float = 120
     agent_api_base_url: str = ""
     agent_api_key: str = ""
     agent_api_timeout_seconds: float = 120
@@ -71,6 +74,10 @@ class Settings(BaseSettings):
             raise RuntimeError("未配置有效的 OPENAI_API_KEY，无法调用真实模型")
         if not self.openai_model:
             raise RuntimeError("未配置 OPENAI_MODEL，无法调用真实模型")
+        if self.openai_reasoning_effort not in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
+            raise RuntimeError("OPENAI_REASONING_EFFORT 不是有效值")
+        if self.openai_timeout_seconds <= 0:
+            raise RuntimeError("OPENAI_TIMEOUT_SECONDS 必须大于 0")
         if self.openai_base_url:
             parsed = urlparse(self.openai_base_url)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:

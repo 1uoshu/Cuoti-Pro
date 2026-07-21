@@ -31,11 +31,14 @@ def build_practice_generation_prompt(
       "content": "题目",
       "standard_answer": "标准答案",
       "explanation": "完整但简洁的解析",
+      "knowledge_point": "{knowledge_point}",
       "confidence": 0.98,
       "confidence_warning": null
     }}
   ]
 }}
 
+每道题必须直接考查“{knowledge_point}”，knowledge_point 字段必须原样复制该值，不得降级为无关知识点。
+python_verify 验证的题目、最终 content 和 standard_answer 必须是同一道题，不能验算后替换题目。
 题目必须可独立作答，答案必须与题目匹配，不能重复或引用不存在的图片、表格和上下文。
 confidence 必须在 0 到 1 之间；低于 0.85 时 confidence_warning 必须简要提示用户自行判断。"""

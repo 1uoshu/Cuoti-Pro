@@ -10,13 +10,17 @@ optional compatibility adapter for the contract in `agent_api.json`.
 
 The kernel owns shared infrastructure:
 
-- `LLMGateway`: OpenAI-compatible chat, multimodal requests, and bounded tool calls;
+- `LLMGateway`: raw HTTP OpenAI Responses requests for text, images, and bounded tool calls;
 - `AgentRuntime`: LangGraph workflow construction;
 - `PythonSandbox`: the `execute(code) -> SandboxResult` verification interface;
 - authentication, persistence, uploads, audit, jobs, RAG, and knowledge-graph interfaces.
 
 Plugins own learning behavior and prompts. They obtain capabilities only through
 `KernelContext`; they do not create model clients or sandbox processes.
+
+The Responses adapter extracts text from `output[].content[].output_text`, sends images as
+`input_image` data URLs, consumes `function_call` items, and returns sandbox results as
+`function_call_output`. Provider errors are bounded and never include the configured key.
 
 ## Scene 1: Assignment Grading
 

@@ -8,8 +8,14 @@ FastAPI backend for the Smart Learning Agent project. The codebase is organized 
 2. Configure the built-in Agent:
 
    - `OPENAI_API_KEY`: OpenAI-compatible model key.
-   - `OPENAI_BASE_URL`: optional compatible endpoint.
+   - `OPENAI_BASE_URL`: compatible endpoint base. For `api.mhapi.cn`, use
+     `https://api.mhapi.cn` without `/v1`.
    - `OPENAI_MODEL`: a model that supports image input for scene 1.
+   - `OPENAI_REASONING_EFFORT`: Responses reasoning level, such as `xhigh`; use `none`
+     for models that do not support the Responses `reasoning` option.
+
+   The kernel uses raw HTTP with the OpenAI Responses wire protocol. It does not use the
+   OpenAI Python SDK because some compatible gateways reject the SDK request fingerprint.
 
    Leave `AGENT_API_BASE_URL` empty for the built-in Agent. The `AGENT_API_*` settings are
    only for the optional adapter documented in `docs/agent-integration.md`.

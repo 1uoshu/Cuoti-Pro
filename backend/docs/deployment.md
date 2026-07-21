@@ -32,6 +32,10 @@ The built-in Agent is the default when `AGENT_API_BASE_URL` is empty. It directl
 the `OPENAI_*` values. Set `AGENT_API_BASE_URL` and its service JWT only when testing the
 optional external Agent adapter.
 
+`OPENAI_BASE_URL` is the prefix immediately before `/responses`. For example,
+`https://api.mhapi.cn` produces `https://api.mhapi.cn/responses`, while the official
+OpenAI-compatible prefix is commonly `https://api.openai.com/v1`.
+
 For a real deployment, replace every demo password, terminate TLS at a reverse proxy,
 restrict CORS, back up both volumes, and move sandbox execution to a dedicated isolated
 worker before accepting untrusted public traffic.

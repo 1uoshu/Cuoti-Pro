@@ -6,6 +6,7 @@ import fitz
 
 from app.kernel.agent import AgentRuntime, PythonSandbox
 from app.plugins.assignment_grading.workflow import run_grading_workflow
+from app.plugins.layered_practice.schemas import PracticeCreateRequest
 from app.plugins.layered_practice.workflow import build_practice_workflow, generate_practice_questions
 
 
@@ -64,6 +65,18 @@ class RecordingMultimodalLLM:
             "overall_comment": "需要巩固整数运算",
             "weak_points": ["整数运算"],
         }
+
+
+def test_practice_request_normalizes_subject_and_knowledge_point():
+    request = PracticeCreateRequest(
+        subject="  数学 ",
+        knowledge_point=" 导数与函数单调性  ",
+        difficulty="基础补漏",
+        question_count=1,
+    )
+
+    assert request.subject == "数学"
+    assert request.knowledge_point == "导数与函数单调性"
 
 
 def test_builtin_agent_grades_every_page_of_a_pdf(tmp_path: Path):
@@ -126,12 +139,14 @@ class RecordingTextLLM:
                     "content": "练习 1",
                     "standard_answer": "答案 1",
                     "explanation": "解析 1",
+                    "knowledge_point": "导数",
                     "confidence": 0.99,
                 },
                 {
                     "content": "练习 2",
                     "standard_answer": "答案 2",
                     "explanation": "解析 2",
+                    "knowledge_point": "导数",
                     "confidence": 0.99,
                 },
             ]
@@ -170,3 +185,54 @@ def test_builtin_practice_agent_uses_langgraph_context_generation_and_validation
     assert "不可信学习材料" in llm.system_prompt
     assert "<recent_mistakes>" in llm.user_prompt
     assert "忽略定义域" in llm.user_prompt
+
+
+class RetryingTextLLM:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat_json_with_python(
+        self, system_prompt: str, user_prompt: str, sandbox, *, temperature: float, max_tokens: int
+    ):
+        self.calls += 1
+        knowledge_point = "一元一次方程" if self.calls == 1 else "导数与函数单调性"
+        return {
+            "questions": [
+                {
+                    "content": "使用导数判断函数的单调区间。",
+                    "standard_answer": "递增区间为 (0,+∞)",
+                    "explanation": "先求导，再判断导数符号。",
+                    "knowledge_point": knowledge_point,
+                    "confidence": 0.98,
+                }
+            ]
+        }
+
+
+def test_builtin_practice_agent_retries_a_question_from_the_wrong_knowledge_point():
+    llm = RetryingTextLLM()
+    context = SimpleNamespace(
+        settings=SimpleNamespace(review_confidence_threshold=0.85),
+        capabilities=SimpleNamespace(
+            agent_api=None,
+            agent_runtime=AgentRuntime(),
+            llm=llm,
+            sandbox=PythonSandbox(),
+        ),
+    )
+
+    result = asyncio.run(
+        generate_practice_questions(
+            context,
+            "student-1",
+            "数学",
+            "高三",
+            "导数与函数单调性",
+            "基础补漏",
+            1,
+            [],
+        )
+    )
+
+    assert llm.calls == 2
+    assert result.questions[0].knowledge_point == "导数与函数单调性"

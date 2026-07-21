@@ -12,6 +12,11 @@ class PracticeCreateRequest(BaseModel):
     difficulty: PracticeDifficulty
     question_count: int = Field(default=5, ge=1, le=10)
 
+    @field_validator("subject", "knowledge_point", mode="before")
+    @classmethod
+    def normalize_required_text(cls, value: object):
+        return value.strip() if isinstance(value, str) else value
+
 
 class PracticeAnswerInput(BaseModel):
     question_id: int
@@ -26,6 +31,7 @@ class ModelPracticeQuestion(BaseModel):
     content: str = Field(min_length=1)
     standard_answer: str = Field(min_length=1)
     explanation: str = Field(min_length=1)
+    knowledge_point: str = Field(min_length=1, max_length=128)
     confidence: float = Field(default=0, ge=0, le=1)
     confidence_warning: str | None = None
 
