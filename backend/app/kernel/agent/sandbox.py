@@ -15,6 +15,18 @@ from typing import Any
 
 
 _ALLOWED_IMPORTS = {"decimal", "fractions", "math", "pint", "statistics", "sympy"}
+_BLOCKED_ATTRIBUTES = {
+    "importlib",
+    "os",
+    "pathlib",
+    "requests",
+    "shutil",
+    "socket",
+    "subprocess",
+    "sys",
+    "tempfile",
+    "urllib",
+}
 _BLOCKED_NAMES = {
     "__builtins__",
     "__import__",
@@ -45,8 +57,8 @@ class SandboxResult:
 
 class _SandboxValidator(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr.startswith("_"):
-            raise ValueError("private and dunder attributes are not allowed")
+        if node.attr.startswith("_") or node.attr in _BLOCKED_ATTRIBUTES:
+            raise ValueError(f"attribute '{node.attr}' is not allowed")
         self.generic_visit(node)
 
     def visit_Import(self, node: ast.Import) -> None:
@@ -67,7 +79,7 @@ class _SandboxValidator(ast.NodeVisitor):
 
     @staticmethod
     def _validate_import(module_name: str) -> None:
-        if module_name.split(".", 1)[0] not in _ALLOWED_IMPORTS:
+        if module_name not in _ALLOWED_IMPORTS:
             raise ValueError(f"import '{module_name}' is not allowed")
 
 
@@ -104,6 +116,7 @@ class PythonSandbox:
         request = json.dumps(
             {
                 "code": code,
+                "allowed_imports": sorted(_ALLOWED_IMPORTS),
                 "memory_limit_mb": self._memory_limit_mb,
                 "max_output_chars": self._max_output_chars,
                 "timeout_seconds": self._timeout_seconds,

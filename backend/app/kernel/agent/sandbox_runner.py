@@ -18,23 +18,23 @@ from RestrictedPython.Guards import (
 from RestrictedPython.PrintCollector import PrintCollector
 
 
-ALLOWED_IMPORTS = {"decimal", "fractions", "math", "pint", "statistics", "sympy"}
+def _build_restricted_import(allowed_imports: frozenset[str]):
+    def restricted_import(
+        name: str,
+        globals: dict[str, Any] | None = None,
+        locals: dict[str, Any] | None = None,
+        fromlist: tuple[str, ...] | None = (),
+        level: int = 0,
+    ) -> Any:
+        del globals, locals
+        if level or name not in allowed_imports:
+            raise ImportError(f"import '{name}' is not allowed")
+        resolved_fromlist = fromlist or ()
+        if any(item == "*" or item.startswith("_") for item in resolved_fromlist):
+            raise ImportError("wildcard and private imports are not allowed")
+        return __import__(name, fromlist=resolved_fromlist)
 
-
-def _restricted_import(
-    name: str,
-    globals: dict[str, Any] | None = None,
-    locals: dict[str, Any] | None = None,
-    fromlist: tuple[str, ...] | None = (),
-    level: int = 0,
-) -> Any:
-    del globals, locals
-    if level or name.split(".", 1)[0] not in ALLOWED_IMPORTS:
-        raise ImportError(f"import '{name}' is not allowed")
-    resolved_fromlist = fromlist or ()
-    if any(item == "*" or item.startswith("_") for item in resolved_fromlist):
-        raise ImportError("wildcard and private imports are not allowed")
-    return __import__(name, fromlist=resolved_fromlist)
+    return restricted_import
 
 
 def _apply_resource_limits(memory_limit_mb: int, timeout_seconds: float) -> None:
@@ -53,7 +53,8 @@ def _apply_resource_limits(memory_limit_mb: int, timeout_seconds: float) -> None
 def _execute(request: dict[str, Any]) -> dict[str, Any]:
     _apply_resource_limits(int(request["memory_limit_mb"]), float(request["timeout_seconds"]))
     builtins = dict(safe_builtins)
-    builtins["__import__"] = _restricted_import
+    allowed_imports = frozenset(str(item) for item in request["allowed_imports"])
+    builtins["__import__"] = _build_restricted_import(allowed_imports)
     namespace: dict[str, Any] = {
         "__builtins__": builtins,
         "_getattr_": safer_getattr,
@@ -76,7 +77,7 @@ def main() -> None:
     request: dict[str, Any] = {}
     try:
         request = json.loads(sys.stdin.read())
-        for module_name in sorted(ALLOWED_IMPORTS):
+        for module_name in request["allowed_imports"]:
             importlib.import_module(module_name)
         sys.stdout.write("READY\n")
         sys.stdout.flush()

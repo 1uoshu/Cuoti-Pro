@@ -29,4 +29,3 @@ def downgrade() -> None:
     op.drop_column("practice_answers", "confidence")
     op.drop_column("practice_questions", "confidence_warning")
     op.drop_column("practice_questions", "confidence")
-

@@ -19,7 +19,13 @@ FastAPI backend for the Smart Learning Agent project. The codebase is organized 
    uv sync
    ```
 
-4. Run the API:
+4. Apply database migrations (required for both new and existing databases):
+
+   ```bash
+   uv run alembic upgrade head
+   ```
+
+5. Run the API:
 
    ```bash
    uv run uvicorn app.main:app --reload --port 8000

@@ -36,3 +36,14 @@ Recommended measures:
 
 Do not claim production accuracy from synthetic unit tests. Preserve anonymized model
 responses, tool evidence, expected decisions, and failure cases as review artifacts.
+
+## Demo Limitations
+
+- Assignment grading exposes asynchronous progress but currently uses an in-process job
+  runner; replace it with a durable queue for multi-instance production deployment.
+- Practice generation and answer submission are synchronous in this demo. A later task
+  queue adapter should expose pollable practice task IDs and retry state.
+- Docker configuration is statically validated, but this development machine does not
+  have Docker installed, so a local image build and Compose health run remain pending.
+- RestrictedPython reduces accidental side effects but is not the final hostile-code
+  isolation boundary; see `builtin-agent.md` for the dedicated-worker hardening path.

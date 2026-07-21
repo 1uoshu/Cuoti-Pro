@@ -60,6 +60,11 @@ def test_llm_gateway_runs_bounded_python_verify_tool_and_returns_final_json():
     assert result == {"confidence": 0.99, "verified": True}
     assert sandbox.codes == ["result = {'equivalent': 1 + 1 == 2}"]
     assert completions.calls[0]["tools"][0]["function"]["name"] == "python_verify"
+    assert completions.calls[0]["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "python_verify"},
+    }
+    assert completions.calls[1]["tool_choice"] == "auto"
     tool_message = completions.calls[1]["messages"][-1]
     assert tool_message["role"] == "tool"
     assert json.loads(tool_message["content"]) == {
@@ -67,4 +72,3 @@ def test_llm_gateway_runs_bounded_python_verify_tool_and_returns_final_json():
         "value": {"equivalent": True},
         "error": None,
     }
-

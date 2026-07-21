@@ -187,17 +187,24 @@ class LLMGateway:
         client = self._client()
 
         while True:
+            tool_choice: Any = (
+                {"type": "function", "function": {"name": "python_verify"}}
+                if used_tool_calls == 0
+                else "auto"
+            )
             response = await client.chat.completions.create(
                 model=self.model,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 messages=messages,
                 tools=tools,
-                tool_choice="auto",
+                tool_choice=tool_choice,
             )
             message = response.choices[0].message
             tool_calls = list(message.tool_calls or [])
             if not tool_calls:
+                if used_tool_calls == 0:
+                    raise ValueError("model returned a result without required python verification")
                 return self.extract_json(message.content or "")
             if used_tool_calls + len(tool_calls) > max_tool_calls:
                 raise ValueError("model exceeded the python_verify tool-call limit")

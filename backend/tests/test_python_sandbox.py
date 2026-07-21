@@ -34,6 +34,8 @@ def test_python_sandbox_rejects_os_file_and_dynamic_execution_access():
         'result = open("secret.txt").read()',
         'result = eval("1 + 1")',
         'result = (1).__class__.__mro__',
+        "import sympy.utilities.runtests as rt\nresult = rt.os.getcwd()",
+        "import sympy as sp\nresult = sp.utilities.runtests.subprocess.run(['whoami'])",
     ):
         execution = _sandbox().execute(code)
 

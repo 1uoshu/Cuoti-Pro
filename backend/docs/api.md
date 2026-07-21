@@ -80,9 +80,14 @@ Use `Authorization: Bearer <access_token>` for endpoints marked as authenticated
   "is_correct": false,
   "explanation": "错因说明",
   "confidence": 0.91,
-  "needs_review": false
+  "needs_review": false,
+  "confidence_warning": null
 }
 ```
+
+`needs_review` is retained as a compatibility risk flag. It does not block completion,
+wrong-question archiving, or mastery updates. When it is `true`, show
+`confidence_warning` and let the user judge the result.
 
 ## Kernel
 
@@ -382,6 +387,8 @@ Response data:
       "content": "题目",
       "standard_answer": "标准答案",
       "explanation": "解析",
+      "confidence": 0.97,
+      "confidence_warning": null,
       "answers": []
     }
   ]
@@ -409,6 +416,9 @@ Request:
 ```
 
 Response data: same as get practice, with `status: "completed"`, `student_score`, and per-question `answers`.
+Each answer contains `answer`, `is_correct`, `score`, `explanation`, `confidence`, and
+`confidence_warning`. A low-confidence warning is informational and never creates a
+manual-review workflow.
 
 ## Error Notes
 
