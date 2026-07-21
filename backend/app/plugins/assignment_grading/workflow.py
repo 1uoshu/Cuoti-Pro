@@ -116,7 +116,7 @@ async def regrade_text_question(
             student_answer=student_answer or "",
             subject=subject,
         )
-        return normalize_question_grade(payload)
+        return normalize_question_grade(payload, default_confidence=0)
 
     data = await context.capabilities.llm.chat_json_with_python(
         REGRADE_SYSTEM_PROMPT,

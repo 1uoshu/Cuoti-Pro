@@ -1,6 +1,6 @@
 # 前端对接与安全注意事项
 
-本文给前端两位同学使用。接口细节以 [backend/docs/api.md](../backend/docs/api.md) 为准，这里只强调对接流程和安全边界。
+本文给前端两位同学使用。接口细节以根目录 [API接口文档.md](../API接口文档.md) 为准，这里只强调对接流程和安全边界。
 
 ## 对接流程
 
@@ -9,7 +9,7 @@
 3. 登录或注册后保存 `data.access_token`，后续请求带请求头：`Authorization: Bearer <token>`。
 4. 场景 1 的上传接口是 `POST /api/assignments`，使用 `multipart/form-data`，字段是 `file`、`subject`、可选 `title`。
 5. 上传成功后不要立即认为批改完成，要用返回的 `task.id` 轮询 `GET /api/tasks/{task_id}`，直到 `status` 变成 `completed` 或 `failed`。
-6. 场景 2 的薄弱点首页数据来自 `GET /api/dashboard`、`GET /api/mastery`、`GET /api/wrong-questions` 和 `/api/practices` 系列接口。
+6. 场景 2 的薄弱知识点首页数据来自 `GET /api/dashboard`、`GET /api/mastery`、`GET /api/wrong-questions` 和 `/api/practices` 系列接口。
 7. 个人审计日志来自 `GET /api/audit-logs/me`，可用于“最近登录/上传/批改/练习”类页面或测试验收。
 
 ## XSS 防护
@@ -59,7 +59,7 @@
 
 ## 前后端协作约定
 
-- 前端新增页面前先看 [backend/docs/api.md](../backend/docs/api.md)，不要猜字段名。
+- 前端新增页面前先看根目录 [API接口文档.md](../API接口文档.md)，不要猜字段名。
 - 如果接口字段不够用，先在群里说明页面需要什么数据，不要在前端硬编码假数据绕过去。
 - Agent 生成内容可能不稳定，页面要能处理空数组、空字符串、低置信度和批改失败状态。
 - 与学习效果相关的“已掌握”“薄弱点”“得分”等显示，应直接来自后端字段，不在前端重复计算核心业务规则。

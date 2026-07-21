@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.kernel.context import KernelContext, get_kernel_context
 from app.kernel.models import User
+from app.kernel.responses import SAFE_AGENT_ERROR_MESSAGE
 from app.plugins.assignment_grading.models import Assignment, ProcessingTask, Question
 from app.plugins.assignment_grading.schemas import ModelGradePayload, QuestionUpdateRequest
 from app.plugins.assignment_grading.workflow import regrade_text_question, run_grading_workflow
@@ -26,6 +27,8 @@ async def create_assignment(
     subject = subject.strip()
     if not subject:
         raise HTTPException(status_code=400, detail="请填写学科")
+    if len(subject) > 32:
+        raise HTTPException(status_code=400, detail="学科名称不能超过 32 个字符")
     file_path, suffix = await context.capabilities.storage.save_upload(file, user.id, "uploads")
     assignment = Assignment(
         user_id=user.id,
@@ -92,13 +95,13 @@ def process_assignment_task(task_id: str) -> None:
                 metadata={"task_id": task.id, "question_count": len(payload.questions), "subject": assignment.subject},
             )
             db.commit()
-        except Exception as error:
+        except Exception:
             db.rollback()
             task = db.get(ProcessingTask, task_id)
             if task is not None:
                 task.status = "failed"
                 task.step = "failed"
-                task.error_message = str(error)[:1000]
+                task.error_message = SAFE_AGENT_ERROR_MESSAGE
                 assignment = db.get(Assignment, task.assignment_id)
                 if assignment is not None:
                     assignment.status = "failed"
@@ -111,7 +114,7 @@ def process_assignment_task(task_id: str) -> None:
                         resource_id=assignment.id,
                         summary="Assignment grading task failed",
                         metadata={"task_id": task.id, "subject": assignment.subject},
-                        error_message=str(error),
+                        error_message=SAFE_AGENT_ERROR_MESSAGE,
                     )
                 db.commit()
 

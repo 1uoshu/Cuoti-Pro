@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.kernel.context import KernelContext
 from app.kernel.models import User
+from app.kernel.responses import SAFE_AGENT_ERROR_MESSAGE
 from app.plugins.layered_practice.models import PracticeAnswer, PracticeQuestion, PracticeTask
 from app.plugins.layered_practice.schemas import PracticeCreateRequest, PracticeSubmitRequest
 from app.plugins.layered_practice.workflow import generate_practice_questions, grade_practice_answer
@@ -72,7 +73,7 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
         db.commit()
         db.refresh(task)
         return task
-    except Exception as error:
+    except Exception:
         task.status = "failed"
         context.capabilities.audit.record(
             db,
@@ -87,7 +88,7 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
                 "knowledge_point": task.knowledge_point,
                 "difficulty": task.difficulty,
             },
-            error_message=str(error),
+            error_message=SAFE_AGENT_ERROR_MESSAGE,
         )
         db.commit()
         raise

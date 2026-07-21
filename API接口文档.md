@@ -1,7 +1,7 @@
 # Smart Learning Agent API 接口文档
 
-版本：`v1.0`（2026-07-22）
-状态：场景 1「作业上传与批改」和场景 2「错题薄弱点练习」的前端联调合同。
+合同版本：`v1.0`（2026-07-22；当前 URL 前缀仍为 `/api`）
+状态：场景 1「作业上传与批改」和场景 2「错题本与薄弱知识点分层练习」的前端联调合同。
 
 本文以当前后端路由、Pydantic 校验、数据库序列化器和 Agent 工作流实现为准。前端只调用本文件中的学生端后端 API，不直接调用模型或 Agent 服务。
 
@@ -16,7 +16,7 @@
 - 请求和响应编码：UTF-8 JSON；文件上传使用 `multipart/form-data`
 - 默认 CORS：`http://localhost:5173`（由 `CORS_ORIGINS` 配置）
 
-除根路径外，API 成功和失败均使用统一外层：
+所有 `/api` 业务端点（包括未匹配路由的 404 和方法不允许的 405）成功和失败均使用统一外层；`/`、`/docs`、`/openapi.json` 不使用该外层：
 
 ```json
 {
@@ -26,7 +26,7 @@
 }
 ```
 
-`data` 可以是对象、数组或 `null`。成功时 `code` 固定为 `0`；失败时不要只依据 HTTP 状态，优先展示 `message`，并按需读取 `data`。
+`data` 可以是对象、数组或 `null`。成功时 `code` 固定为 `0`。4xx 业务错误优先展示 `message`，并按需读取 `data`；5xx 错误只展示通用失败提示，不向用户暴露内部异常细节。
 
 ### 1.2 鉴权
 
@@ -60,12 +60,14 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 | 401 | 401 | 缺少、过期或无效 JWT |
 | 403 | 403 | 资源不属于当前用户 |
 | 404 | 404 | 资源不存在 |
+| 405 | 405 | 请求方法不允许 |
 | 409 | 409 | 用户名冲突或练习重复提交 |
 | 422 | 4220 | Pydantic 请求校验失败，详情在 `data.errors` |
+| 500 | 500 | 文件保存等已知服务端失败（对用户仍返回通用文案） |
 | 500 | 5000 | 未预期的服务/Agent 错误 |
 | 500 | 5001 | 数据库操作失败 |
 
-后端会把 FastAPI `HTTPException.detail` 字符串放入 `message`，不会使用默认的 `detail` 外层。Agent/模型错误会被截断后返回，不能依赖具体文案判断业务状态。
+后端会把 FastAPI `HTTPException.detail` 字符串放入 4xx `message`，不会使用默认的 `detail` 外层。5xx 响应使用通用文案；内部 Agent/模型异常不会通过学生 API 或个人审计接口原样返回，不能依赖具体文案判断业务状态。
 
 ## 2. 公共数据结构
 
@@ -99,7 +101,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 - `status`：`queued`、`processing`、`completed`、`failed`
 - `progress`：整数 `0` 到 `100`
 - `step`：展示用文本，不要按固定英文枚举解析
-- `error_message`：成功为 `null`；失败时是有限长度的诊断文本
+- `error_message`：成功为 `null`；失败时是用户可见的安全提示，不包含堆栈、密钥或内部服务细节
 
 ### 2.3 作业 `Assignment`
 
@@ -177,7 +179,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 }
 ```
 
-练习 `status`：`generating`、`ready`、`completed`、`failed`。创建接口等待生成完成后才返回，成功时通常为 `ready`；失败时接口返回错误，失败任务可能仅留在数据库中。每个 `answers` 最多一条，提交后包含：
+练习 `status`：`generating`、`ready`、`submitting`、`completed`、`failed`。创建接口等待生成完成后才返回，成功时通常为 `ready`；提交期间为 `submitting`，失败时接口返回错误并恢复为可提交状态，生成失败任务可能仅留在数据库中。每个 `answers` 最多一条，提交后包含：
 
 ```json
 {
@@ -248,7 +250,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | :---: | --- |
 | `file` | 文件 | 是 | 文件名后缀 `.jpg`、`.jpeg`、`.png`、`.pdf` |
-| `subject` | 字符串 | 是 | 去除首尾空白后不能为空 |
+| `subject` | 字符串 | 是 | 去除首尾空白后为 1-32 字符 |
 | `title` | 字符串 | 否 | 省略时使用原文件名；服务端最多保存 128 字符 |
 
 默认限制：文件不超过 `MAX_UPLOAD_MB=10` MB，PDF 不超过 `MAX_PDF_PAGES=10` 页；空文件、无效 PDF 或不支持的后缀返回 `400`。具体限制以部署环境变量为准。
@@ -294,7 +296,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 `content` 若传入不能为空，`knowledge_point` 最长 128 字符。接口会再次调用内置/外部 Agent，可能耗时较长；成功返回更新后的 `Question`，同时重算作业总分、薄弱点、错题归档和掌握度。
 
-## 5. 场景 2：错题与薄弱点练习
+## 5. 场景 2：错题本与薄弱知识点分层练习
 
 ### `GET /api/dashboard`（需鉴权）
 
@@ -358,7 +360,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 }
 ```
 
-- `subject`：1-32 字符；`knowledge_point`：1-128 字符；服务端会去除首尾空白
+- `subject`：去除首尾空白后为 1-32 字符；`knowledge_point`：去除首尾空白后为 1-128 字符
 - `difficulty` 必须是：`基础补漏`、`同类变式`、`综合提升`、`高考真题`
 - `question_count`：1-10，默认 5
 
@@ -381,9 +383,9 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 }
 ```
 
-- `answers` 至少 1 项；`answer` 长度 1-5000
+- `answers` 至少 1 项；`answer` 去除首尾空白后长度为 1-5000
 - 必须覆盖该练习的全部题目且每题一次；缺题、重复题或多余题返回 `400`
-- 已完成练习重复提交返回 `409`
+- 已完成练习重复提交返回 `409`；另一个请求正在提交时也返回 `409`
 
 判题完成后返回完整 `Practice`，`status` 为 `completed`，`student_score` 为百分制；每题 `answers[0]` 含判题结果。提交期间会同步调用 Agent/模型，请设置较长客户端超时（建议不少于 300 秒）。
 
@@ -416,13 +418,13 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 - `event_type`：可选，精确匹配，例如 `auth.login`
 - `limit`：可选，1-100，默认 50
 
-返回数组，每项字段为 `id`、`event_type`、`outcome`、`actor_user_id`、`actor_username`、`resource_type`、`resource_id`、`summary`、`metadata`、`error_message`、`created_at`。`metadata` 已对密码、令牌、密钥、Authorization 等敏感键脱敏；所有字段按纯文本处理。
+返回数组，每项字段为 `id`、`event_type`、`outcome`、`actor_user_id`、`actor_username`、`resource_type`、`resource_id`、`summary`、`metadata`、`error_message`、`created_at`。`metadata` 已对密码、令牌、密钥、Authorization 等敏感键脱敏；Agent 失败的 `error_message` 仅保存安全化通用提示；所有字段按纯文本处理。
 
 ## 7. Agent、验算与置信度行为
 
 默认模式是项目内置 Agent，直接复用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。只有配置 `AGENT_API_BASE_URL` 和 `AGENT_API_KEY` 时才启用可选外部 Agent 适配器；前端不需要也不应该持有这些服务凭据。
 
-内置 Agent 对数学、物理等可计算题可调用受限 `python_verify`（允许的数学库由后端沙箱控制），并要求检查数学等价性、定义域、边界条件和物理量纲。不同但等价的推导不因形式不同被判错；验算不确定时降低 `confidence`。
+内置 Agent 对数学、物理等可计算题可调用受限 `python_verify`（允许的数学库由后端沙箱控制），并要求检查数学等价性、定义域、边界条件和物理量纲。不同但等价的推导不因形式不同被判错；验算不确定时降低 `confidence`。外部 Agent 未提供 `confidence` 时后端按 `0` 处理并提示低置信度，不会默认视为完全可信。
 
 默认低置信度阈值为 `0.85`（`REVIEW_CONFIDENCE_THRESHOLD`）。低于阈值时返回 `needs_review=true` 或 `confidence_warning`，这是提示而非人工审核工作流：结果仍会完成、归档和更新掌握度，用户自行判断即可。
 
@@ -445,7 +447,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 ### 通用注意点
 
-- 每个请求都要处理非 2xx；用户提示取 `message`，校验明细取 `data.errors`。
+- 每个请求都要处理非 2xx；4xx 用户提示取 `message`，5xx 使用固定通用失败提示，校验明细取 `data.errors`。
 - 收到 401 时清除本地 JWT 并回到登录页；不要自动重试原请求造成循环。
 - 资源 ID 是整数（作业、题目、练习）或字符串（批改任务），不要统一按一种类型处理。
 - Agent 生成、判题和重新批改可能超过普通 Axios 默认超时；创建/提交练习建议使用 300 秒超时。
@@ -467,4 +469,4 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 ## 10. 合同审计结论
 
-当前后端学生端 API 可以冻结供前端开发，前提是以本文为准。与旧 `backend/docs/api.md` 相比，本文补齐了示例能力接口、真实错误 code、实际错题状态 `unreviewed`、练习全量提交约束、同步长耗时、上传/PDF 限制、字段可空性及 Agent 置信度策略。`backend/docs/agent_api.json` 是外部适配器输入合同，不是前端调用入口。
+当前后端学生端 API 可以冻结供前端开发，前提是以本文为准。`backend/docs/api.md` 仅作为本合同的后端目录索引；`backend/docs/agent_api.json` 是外部适配器输入合同，不是前端调用入口。

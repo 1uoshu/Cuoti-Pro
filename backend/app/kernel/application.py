@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.kernel import models as kernel_models  # noqa: F401 - registers kernel ORM models
 from app.kernel.audit.routes import router as audit_router
@@ -15,7 +16,7 @@ from app.kernel.config import get_settings
 from app.kernel.context import build_kernel_context, set_kernel_context
 from app.kernel.database import Base, engine
 from app.kernel.plugins import PluginManager, load_plugins
-from app.kernel.responses import error, ok
+from app.kernel.responses import GENERIC_SERVER_ERROR_MESSAGE, error, ok
 
 
 def create_app() -> FastAPI:
@@ -68,13 +69,11 @@ def _build_api_router(plugin_manager: PluginManager) -> APIRouter:
 def _register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_error_handler(_: Request, exc: HTTPException):
-        if isinstance(exc.detail, str):
-            message = exc.detail
-            data = None
-        else:
-            message = "请求未能完成"
-            data = {"detail": exc.detail}
-        return JSONResponse(status_code=exc.status_code, content=error(exc.status_code, message, data), headers=exc.headers)
+        return _http_error_response(exc)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def starlette_http_error_handler(_: Request, exc: StarletteHTTPException):
+        return _http_error_response(exc)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(_: Request, exc: RequestValidationError):
@@ -89,4 +88,17 @@ def _register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unexpected_error_handler(_: Request, __: Exception):
-        return JSONResponse(status_code=500, content=error(5000, "服务器处理请求时发生错误"))
+        return JSONResponse(status_code=500, content=error(5000, GENERIC_SERVER_ERROR_MESSAGE))
+
+
+def _http_error_response(exc: StarletteHTTPException) -> JSONResponse:
+    if exc.status_code >= 500:
+        message = GENERIC_SERVER_ERROR_MESSAGE
+        data = None
+    elif isinstance(exc.detail, str):
+        message = exc.detail
+        data = None
+    else:
+        message = "请求未能完成"
+        data = {"detail": exc.detail}
+    return JSONResponse(status_code=exc.status_code, content=error(exc.status_code, message, data), headers=exc.headers)

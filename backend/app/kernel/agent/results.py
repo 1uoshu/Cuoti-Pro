@@ -1,7 +1,7 @@
 from typing import Any
 
 
-def normalize_question_grade(payload: dict[str, Any], *, default_confidence: float = 1) -> dict[str, Any]:
+def normalize_question_grade(payload: dict[str, Any], *, default_confidence: float = 0) -> dict[str, Any]:
     is_correct = _as_bool(first(payload, "is_correct", "correct"), "is_correct")
     score = as_float(first(payload, "score", default=10 if is_correct else 0), "score")
     max_score = as_float(first(payload, "max_score", "full_score", default=max(10, score)), "max_score")

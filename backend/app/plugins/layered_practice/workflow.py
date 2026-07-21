@@ -129,7 +129,7 @@ async def grade_practice_answer(
             question=question,
             student_answer=student_answer,
         )
-        return normalize_question_grade(payload)
+        return normalize_question_grade(payload, default_confidence=0)
     return await regrade_text_question(
         context,
         subject,
@@ -173,7 +173,7 @@ def _normalize_agent_practice_questions(
                 "standard_answer": required_text(item, "standard_answer", "answer", "correct_answer"),
                 "explanation": required_text(item, "explanation", "analysis", "reason"),
                 "knowledge_point": knowledge_point,
-                "confidence": float(item.get("confidence", 0)),
+                "confidence": float(item["confidence"]) if item.get("confidence") is not None else 0,
                 "confidence_warning": item.get("confidence_warning") or "外部 Agent 未提供可靠验算置信度，请自行判断",
             }
         )

@@ -143,7 +143,7 @@ def test_scene_one_text_regrade_uses_agent_grade_endpoint():
         "score": 10.0,
         "max_score": 10.0,
         "explanation": "回答正确",
-        "confidence": 1.0,
+        "confidence": 0,
     }
 
 
@@ -216,5 +216,5 @@ def test_scene_two_answer_uses_practice_answer_endpoint():
         "score": 2.0,
         "max_score": 10.0,
         "explanation": "符号错误",
-        "confidence": 1.0,
+        "confidence": 0,
     }

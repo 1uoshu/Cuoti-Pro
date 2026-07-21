@@ -23,7 +23,7 @@ The backend uses a kernel-managed plugin architecture:
 - Plugin capabilities: assignment grading, wrong question book, mastery tracking, layered practice, dashboard composition, and example plugin.
 
 See `backend/docs/plugin-development.md` for backend contributor rules.
-Frontend developers should read `backend/docs/api.md` and `docs/frontend-integration-security.md` before wiring pages.
+Frontend developers should read `API接口文档.md` and `docs/frontend-integration-security.md` before wiring pages.
 
 ## Branch Strategy
 

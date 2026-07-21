@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.kernel.auth.dependencies import get_current_user
@@ -38,18 +39,33 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
         main_subject=payload.main_subject,
     )
     db.add(user)
-    db.flush()
-    audit.record(
-        db,
-        event_type="auth.register",
-        actor=user,
-        resource_type="user",
-        resource_id=user.id,
-        summary="Student account registered",
-        metadata={"grade": user.grade, "main_subject": user.main_subject},
-        request=request,
-    )
-    db.commit()
+    try:
+        db.flush()
+        audit.record(
+            db,
+            event_type="auth.register",
+            actor=user,
+            resource_type="user",
+            resource_id=user.id,
+            summary="Student account registered",
+            metadata={"grade": user.grade, "main_subject": user.main_subject},
+            request=request,
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if db.scalar(select(User).where(User.username == payload.username)) is None:
+            raise
+        audit.record(
+            db,
+            event_type="auth.register.conflict",
+            actor_username=payload.username,
+            outcome="failure",
+            summary="Duplicate username during concurrent registration",
+            request=request,
+            commit=True,
+        )
+        raise HTTPException(status_code=409, detail="用户名已存在")
     db.refresh(user)
     return ok({"user": serialize_user(user), "access_token": create_access_token(user.id), "token_type": "bearer"})
 

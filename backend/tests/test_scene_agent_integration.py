@@ -75,6 +75,11 @@ class LowConfidenceAgentAPI(SceneAgentAPI):
         }
 
 
+class FailingAgentAPI(SceneAgentAPI):
+    async def grade_file(self, **_):
+        raise RuntimeError("upstream secret and stack details")
+
+
 def test_scene_one_and_two_complete_through_public_backend_apis():
     original_context = get_kernel_context()
     test_context = replace(
@@ -102,6 +107,14 @@ def test_scene_one_and_two_complete_through_public_backend_apis():
             wrong_questions = client.get("/api/wrong-questions", headers=headers).json()["data"]
             mastery = client.get("/api/mastery", headers=headers).json()["data"]
 
+            blank_question = client.put(
+                f"/api/questions/{assignment['questions'][0]['id']}",
+                headers=headers,
+                json={"content": "   "},
+            )
+            assert blank_question.status_code == 422
+            assert blank_question.json()["code"] == 4220
+
             assert task["status"] == "completed", task["error_message"]
             assert assignment["student_score"] == 10
             assert len(assignment["questions"]) == 2
@@ -125,6 +138,18 @@ def test_scene_one_and_two_complete_through_public_backend_apis():
             practice = practice_response.json()["data"]
             assert practice["status"] == "ready"
 
+            blank_answer = client.post(
+                f"/api/practices/{practice['id']}/submit",
+                headers=headers,
+                json={
+                    "answers": [
+                        {"question_id": practice["questions"][0]["id"], "answer": "   "},
+                        {"question_id": practice["questions"][1]["id"], "answer": "0"},
+                    ]
+                },
+            )
+            assert blank_answer.status_code == 422
+
             submitted = client.post(
                 f"/api/practices/{practice['id']}/submit",
                 headers=headers,
@@ -140,6 +165,20 @@ def test_scene_one_and_two_complete_through_public_backend_apis():
             assert result["status"] == "completed"
             assert result["student_score"] == 40
             assert [item["answers"][0]["is_correct"] for item in result["questions"]] == [True, False]
+            assert result["questions"][0]["answers"][0]["confidence"] == 0
+            assert result["questions"][0]["answers"][0]["confidence_warning"]
+
+            duplicate = client.post(
+                f"/api/practices/{practice['id']}/submit",
+                headers=headers,
+                json={
+                    "answers": [
+                        {"question_id": practice["questions"][0]["id"], "answer": "6"},
+                        {"question_id": practice["questions"][1]["id"], "answer": "0"},
+                    ]
+                },
+            )
+            assert duplicate.status_code == 409
     finally:
         set_kernel_context(original_context)
 
@@ -173,6 +212,39 @@ def test_low_confidence_result_warns_user_without_blocking_learning_updates():
             assert assignment["questions"][0]["confidence_warning"]
             assert len(wrong_questions) == 1
             assert len(mastery) == 1
+    finally:
+        set_kernel_context(original_context)
+
+
+def test_failed_assignment_task_returns_safe_user_message():
+    original_context = get_kernel_context()
+    test_context = replace(
+        original_context,
+        capabilities=replace(original_context.capabilities, agent_api=FailingAgentAPI()),
+    )
+    set_kernel_context(test_context)
+    try:
+        with TestClient(app) as client:
+            token = _register(client)
+            headers = {"Authorization": f"Bearer {token}"}
+            upload = client.post(
+                "/api/assignments",
+                headers=headers,
+                data={"subject": "数学", "title": "失败提示测试"},
+                files={"file": ("failed.png", b"failed-image", "image/png")},
+            )
+            assert upload.status_code == 200
+            task_id = upload.json()["data"]["task"]["id"]
+
+            task = client.get(f"/api/tasks/{task_id}", headers=headers).json()["data"]
+            audit_logs = client.get("/api/audit-logs/me", headers=headers).json()["data"]
+            failed_event = next(item for item in audit_logs if item["event_type"] == "assignment.grading.failed")
+
+        assert task["status"] == "failed"
+        assert task["error_message"] == "智能服务暂时不可用，请稍后重试"
+        assert "secret" not in task["error_message"]
+        assert failed_event["error_message"] == "智能服务暂时不可用，请稍后重试"
+        assert "secret" not in failed_event["error_message"]
     finally:
         set_kernel_context(original_context)
 

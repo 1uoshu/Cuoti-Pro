@@ -45,7 +45,8 @@ The API documentation is available at `http://localhost:8000/docs`.
 - `app/plugins`: business capabilities loaded by the kernel at startup.
 - `app/plugins/example`: reference plugin for backend developers.
 - `docs/plugin-development.md`: plugin rules and extension guide.
-- `docs/api.md`: frontend-facing API summary.
+- `../API接口文档.md`: frozen Chinese frontend API contract.
+- `docs/api.md`: backend-directory index pointing to the frozen contract.
 - `docs/agent-integration.md`: backend-to-Agent mapping, validation, and failure behavior.
 - `docs/builtin-agent.md`: built-in LangGraph flows, verification policy, and sandbox boundary.
 - `docs/deployment.md`: backend and MySQL Docker Compose deployment.

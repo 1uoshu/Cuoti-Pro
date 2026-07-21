@@ -59,6 +59,48 @@ def test_validation_errors_use_api_envelope():
     assert "errors" in body["data"]
 
 
+def test_unknown_route_and_method_errors_use_api_envelope():
+    with TestClient(app) as client:
+        not_found = client.get("/api/does-not-exist")
+        method_not_allowed = client.put("/api/example/ping")
+
+    assert not_found.status_code == 404
+    assert not_found.json()["code"] == 404
+    assert "detail" not in not_found.json()
+    assert method_not_allowed.status_code == 405
+    assert method_not_allowed.json()["code"] == 405
+    assert "detail" not in method_not_allowed.json()
+
+
+def test_duplicate_registration_returns_conflict():
+    with TestClient(app) as client:
+        username = f"duplicate_{uuid.uuid4().hex[:12]}"
+        payload = {
+            "username": username,
+            "password": "password123",
+            "nickname": "测试学生",
+        }
+        assert client.post("/api/auth/register", json=payload).status_code == 200
+        response = client.post("/api/auth/register", json=payload)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == 409
+
+
+def test_assignment_subject_length_is_rejected_before_persistence():
+    with TestClient(app) as client:
+        token = _register_user(client)
+        response = client.post(
+            "/api/assignments",
+            headers={"Authorization": f"Bearer {token}"},
+            data={"subject": "x" * 33},
+            files={"file": ("homework.png", b"image", "image/png")},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == 400
+
+
 def test_profile_update_rejects_null_nickname_at_validation_boundary():
     with TestClient(app) as client:
         token = _register_user(client)
