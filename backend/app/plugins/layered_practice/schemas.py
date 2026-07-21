@@ -26,6 +26,8 @@ class ModelPracticeQuestion(BaseModel):
     content: str = Field(min_length=1)
     standard_answer: str = Field(min_length=1)
     explanation: str = Field(min_length=1)
+    confidence: float = Field(default=0, ge=0, le=1)
+    confidence_warning: str | None = None
 
 
 class ModelPracticePayload(BaseModel):

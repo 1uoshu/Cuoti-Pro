@@ -144,7 +144,7 @@ def test_scene_one_and_two_complete_through_public_backend_apis():
         set_kernel_context(original_context)
 
 
-def test_low_confidence_ocr_waits_for_review_before_learning_updates():
+def test_low_confidence_result_warns_user_without_blocking_learning_updates():
     original_context = get_kernel_context()
     test_context = replace(
         original_context,
@@ -170,8 +170,9 @@ def test_low_confidence_ocr_waits_for_review_before_learning_updates():
             assert assignment["status"] == "completed"
             assert assignment["questions"][0]["confidence"] == 0
             assert assignment["questions"][0]["needs_review"] is True
-            assert wrong_questions == []
-            assert mastery == []
+            assert assignment["questions"][0]["confidence_warning"]
+            assert len(wrong_questions) == 1
+            assert len(mastery) == 1
     finally:
         set_kernel_context(original_context)
 

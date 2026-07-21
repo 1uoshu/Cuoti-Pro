@@ -34,6 +34,8 @@ class PracticeQuestion(TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     standard_answer: Mapped[str] = mapped_column(Text, nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    confidence_warning: Mapped[Optional[str]] = mapped_column(String(255))
     practice_task: Mapped["PracticeTask"] = relationship(back_populates="questions")
     answers: Mapped[list["PracticeAnswer"]] = relationship(back_populates="question", cascade="all, delete-orphan")
 
@@ -48,4 +50,6 @@ class PracticeAnswer(TimestampMixin, Base):
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    confidence_warning: Mapped[Optional[str]] = mapped_column(String(255))
     question: Mapped["PracticeQuestion"] = relationship(back_populates="answers")

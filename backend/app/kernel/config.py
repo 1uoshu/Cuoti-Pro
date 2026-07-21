@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     storage_dir: str = "storage"
     review_confidence_threshold: float = 0.85
+    sandbox_timeout_seconds: float = 2
+    sandbox_memory_limit_mb: int = 256
+    sandbox_max_code_chars: int = 8_000
+    sandbox_max_output_chars: int = 8_000
     auto_create_tables: bool = True
     plugin_modules: str = (
         "app.plugins.example,"
@@ -54,6 +58,13 @@ class Settings(BaseSettings):
                 raise RuntimeError("配置 AGENT_API_BASE_URL 时必须同时设置 AGENT_API_KEY")
         if self.agent_api_timeout_seconds <= 0:
             raise RuntimeError("AGENT_API_TIMEOUT_SECONDS 必须大于 0")
+        if (
+            self.sandbox_timeout_seconds <= 0
+            or self.sandbox_memory_limit_mb <= 0
+            or self.sandbox_max_code_chars <= 0
+            or self.sandbox_max_output_chars <= 0
+        ):
+            raise RuntimeError("SANDBOX_* 限制必须大于 0")
 
     def validate_model_config(self) -> None:
         if not self.openai_api_key or self.openai_api_key.startswith("your-"):

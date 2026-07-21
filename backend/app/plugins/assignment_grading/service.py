@@ -137,17 +137,16 @@ def persist_grade_payload(context: KernelContext, db: Session, assignment: Assig
         )
         db.add(question)
         db.flush()
-        if not question.needs_review:
-            update_mastery(db, assignment.user_id, assignment.subject, point, item.is_correct)
-            if not item.is_correct:
-                upsert_wrong_question(
-                    db,
-                    user_id=assignment.user_id,
-                    question_id=question.id,
-                    subject=assignment.subject,
-                    knowledge_point=point,
-                    wrong_reason=item.explanation,
-                )
+        update_mastery(db, assignment.user_id, assignment.subject, point, item.is_correct)
+        if not item.is_correct:
+            upsert_wrong_question(
+                db,
+                user_id=assignment.user_id,
+                question_id=question.id,
+                subject=assignment.subject,
+                knowledge_point=point,
+                wrong_reason=item.explanation,
+            )
 
     assignment.total_score = payload.total_score
     assignment.student_score = payload.student_score
@@ -168,7 +167,6 @@ async def update_and_regrade_question(
 
     old_point = question.knowledge_point
     old_is_correct = question.is_correct
-    old_needs_review = question.needs_review
     for field in ("content", "student_answer", "correct_answer", "knowledge_point"):
         value = getattr(patch, field)
         if value is not None:
@@ -191,10 +189,9 @@ async def update_and_regrade_question(
     question.confidence = float(result["confidence"])
     question.needs_review = question.confidence < context.settings.review_confidence_threshold
 
-    if old_is_correct is not None and not old_needs_review:
+    if old_is_correct is not None:
         update_mastery(db, user.id, assignment.subject, old_point, old_is_correct, delta=-1)
-    if not question.needs_review:
-        update_mastery(db, user.id, assignment.subject, question.knowledge_point, question.is_correct)
+    update_mastery(db, user.id, assignment.subject, question.knowledge_point, question.is_correct)
 
     if question.is_correct:
         remove_wrong_question(db, question.id)

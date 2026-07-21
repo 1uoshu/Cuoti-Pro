@@ -43,6 +43,15 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
                     content=item.content,
                     standard_answer=item.standard_answer,
                     explanation=item.explanation,
+                    confidence=item.confidence,
+                    confidence_warning=(
+                        item.confidence_warning
+                        or (
+                            "题目与答案的验算置信度偏低，请结合解析自行判断"
+                            if item.confidence < context.settings.review_confidence_threshold
+                            else None
+                        )
+                    ),
                 )
             )
         task.status = "ready"
@@ -120,10 +129,15 @@ async def submit_practice_answers(
                 is_correct=bool(result["is_correct"]),
                 score=score,
                 explanation=str(result["explanation"]),
+                confidence=float(result["confidence"]),
+                confidence_warning=(
+                    "判题置信度偏低，请结合题目与解析自行判断"
+                    if float(result["confidence"]) < context.settings.review_confidence_threshold
+                    else None
+                ),
             )
         )
-        if float(result["confidence"]) >= context.settings.review_confidence_threshold:
-            update_mastery(db, user.id, task.subject, task.knowledge_point, bool(result["is_correct"]))
+        update_mastery(db, user.id, task.subject, task.knowledge_point, bool(result["is_correct"]))
 
     task.student_score = round(total_score / max_score * 100, 1) if max_score else 0
     task.status = "completed"
