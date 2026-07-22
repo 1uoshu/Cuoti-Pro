@@ -11,11 +11,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.kernel import models as kernel_models  # noqa: F401 - registers kernel ORM models
 from app.kernel.audit.routes import router as audit_router
+from app.kernel.admin.routes import router as admin_router
+from app.kernel.admin.service import load_runtime_settings
 from app.kernel.auth.routes import router as auth_router
 from app.kernel.config import get_settings
 from app.kernel.context import build_kernel_context, set_kernel_context
 from app.kernel.database import Base, engine
+from app.kernel.database import SessionLocal
 from app.kernel.plugins import PluginManager, load_plugins
+from app.kernel.redis import ensure_redis_available
 from app.kernel.responses import GENERIC_SERVER_ERROR_MESSAGE, error, ok
 
 
@@ -28,9 +32,12 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         settings.validate_startup_config()
+        ensure_redis_available(context.capabilities.redis)
         Path(settings.storage_dir).mkdir(parents=True, exist_ok=True)
         if settings.auto_create_tables:
             Base.metadata.create_all(bind=engine)
+        with SessionLocal() as db:
+            load_runtime_settings(db, settings)
         yield
 
     app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
@@ -56,6 +63,7 @@ def create_app() -> FastAPI:
 def _build_api_router(plugin_manager: PluginManager) -> APIRouter:
     api_router = APIRouter(prefix="/api")
     api_router.include_router(auth_router)
+    api_router.include_router(admin_router)
     api_router.include_router(audit_router)
 
     @api_router.get("/plugins", tags=["kernel"])

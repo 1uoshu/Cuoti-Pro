@@ -80,7 +80,8 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
   "nickname": "小明",
   "grade": "高三",
   "school": "一中",
-  "main_subject": "数学"
+  "main_subject": "数学",
+  "role": "student"
 }
 ```
 
@@ -194,6 +195,28 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 ## 3. 认证 API
 
+认证使用 `Authorization: Bearer <access_token>`，不使用 Cookie 或 CSRF token。JWT 是票据格式，
+服务端同时在 Redis 中维护会话白名单；登出和改密码会立即撤销对应白名单 token。接近过期的有效
+请求可能返回 `Set-Token` 响应头，前端应使用其值替换本地 access token。
+
+### `GET /api/auth/pow/challenge?purpose=login|register`（匿名）
+
+登录和注册前先申请一次性 PoW challenge。响应 `data`：
+
+```json
+{
+  "challenge_id": "b8f1...",
+  "purpose": "register",
+  "difficulty": 4,
+  "nonce_seed": "...",
+  "expires_at": "2026-07-22T12:00:00+00:00"
+}
+```
+
+客户端递增尝试 `nonce`，直到
+`SHA-256("<nonce_seed>:<nonce>")` 的十六进制结果以 `difficulty` 个 `0` 开头。challenge 默认在
+120 秒后失效，并绑定用途、客户端 IP 与 User-Agent；任意验证尝试都会原子消费，不能重放。
+
 ### `POST /api/auth/register`（匿名）
 
 请求 JSON：
@@ -204,7 +227,9 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
   "password": "password123",
   "nickname": "小明",
   "grade": "高三",
-  "main_subject": "数学"
+  "main_subject": "数学",
+  "pow_challenge_id": "b8f1...",
+  "pow_nonce": "18342"
 }
 ```
 
@@ -213,11 +238,14 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 - `nickname`：必填，1-64 个字符
 - `grade`、`main_subject`：可选，最长 32 个字符
 
-成功 `data`：`{"user": User, "access_token": "...", "token_type": "bearer"}`。用户名已存在返回 `409`。
+成功 `data`：`{"user": User, "access_token": "...", "token_type": "bearer"}`。数据库中第一个注册成功的
+用户自动获得不可转让的 `admin` 角色，后续用户固定为 `student`；用户名已存在返回 `409`。
 
 ### `POST /api/auth/login`（匿名）
 
-请求：`{"username":"student01","password":"password123"}`。成功返回与注册相同；用户名或密码不正确返回 `401`。
+请求：`{"username":"student01","password":"password123","pow_challenge_id":"b8f1...","pow_nonce":"18342"}`。
+成功返回与注册相同；用户名或密码不正确返回 `401`。PoW 失败、用途或客户端上下文不匹配返回
+`400`；过期或已消费的 challenge 返回 `429`。
 
 ### `GET /api/auth/me`（需鉴权）
 
@@ -239,7 +267,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 ### `POST /api/auth/logout`（需鉴权）
 
-无请求体，返回 `{"logged_out":true}`。这是无状态确认，前端仍需清除本地 JWT。
+无请求体，返回 `{"logged_out":true}`，并立即撤销当前 access token。前端仍应清除本地 token。
 
 ## 4. 场景 1：作业上传与批改
 
@@ -389,7 +417,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 判题完成后返回完整 `Practice`，`status` 为 `completed`，`student_score` 为百分制；每题 `answers[0]` 含判题结果。提交期间会同步调用 Agent/模型，请设置较长客户端超时（建议不少于 300 秒）。
 
-## 6. 内核与示例接口
+## 7. 内核与示例接口
 
 ### `GET /`（匿名）
 
@@ -411,16 +439,50 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 返回示例插件的开发能力说明和当前内核实现名称。该接口用于插件联调，不属于学生学习流程。
 
-### `GET /api/audit-logs/me`（需鉴权）
+## 6. 管理员与审计接口
 
-查询当前用户审计事件：
+以下接口均要求 `role=admin`。普通用户访问返回 `403`；管理员角色仅由首次注册自动授予，当前版本不提供角色转让或删除用户接口。
 
-- `event_type`：可选，精确匹配，例如 `auth.login`
-- `limit`：可选，1-100，默认 50
+### `GET /api/admin/users`（管理员）
 
-返回数组，每项字段为 `id`、`event_type`、`outcome`、`actor_user_id`、`actor_username`、`resource_type`、`resource_id`、`summary`、`metadata`、`error_message`、`created_at`。`metadata` 已对密码、令牌、密钥、Authorization 等敏感键脱敏；Agent 失败的 `error_message` 仅保存安全化通用提示；所有字段按纯文本处理。
+分页查询用户。查询参数 `offset`（默认 `0`）和 `limit`（`1-100`，默认 `50`）；响应为
+`{"items":[User],"offset":0,"limit":50}`。
 
-## 7. Agent、验算与置信度行为
+### `POST /api/admin/users/{user_id}/revoke-sessions`（管理员）
+
+立即撤销目标用户全部 Redis 会话白名单，返回 `{"user_id":1,"sessions_revoked":true}`。不删除用户或其学习数据。
+
+### `GET /api/admin/config`（管理员）
+
+读取可运行时管理的配置：OpenAI Base URL、模型、推理强度、响应存储开关、超时、上传/PDF 限制、审核阈值、token 续期阈值和 PoW 参数。`OPENAI_API_KEY` 永不返回，只以 `openai_api_key_configured` 布尔值表示是否已配置。
+
+### `PUT /api/admin/config`（管理员）
+
+按需提交上述字段更新运行时配置，例如：
+
+```json
+{
+  "openai_base_url": "https://api.openai.com/v1",
+  "openai_api_key": "sk-...",
+  "openai_model": "gpt-4o",
+  "openai_timeout_seconds": 120,
+  "pow_difficulty": 4
+}
+```
+
+配置持久化在数据库中，服务启动时重新加载；API Key 使用由 `JWT_SECRET_KEY` 派生的加密密钥保存，所有读取和审计记录都会脱敏。提交更新后立即作用于新的模型调用、上传限制和认证 challenge。
+
+### `GET /api/audit-logs`（管理员）
+
+全局查询不可变审计日志。`event_type`、`actor_username` 为可选精确筛选，`offset` 默认 `0`，`limit` 为 `1-100`、默认 `50`。响应为 `{"items":[AuditLog],"offset":0,"limit":50}`。
+
+### `GET /api/audit-logs/export`（管理员）
+
+使用与查询接口相同的 `event_type`、`actor_username` 筛选条件，下载 CSV。导出行为本身会写入审计日志。
+
+审计日志没有删除、清理或修改 API；`metadata` 已对密码、令牌、密钥、Authorization 等敏感键脱敏，所有文本应按纯文本处理。
+
+## 8. Agent、验算与置信度行为
 
 内置 Agent 直接复用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。
 
@@ -428,7 +490,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 默认低置信度阈值为 `0.85`（`REVIEW_CONFIDENCE_THRESHOLD`）。低于阈值时返回 `needs_review=true` 或 `confidence_warning`，这是提示而非人工审核工作流：结果仍会完成、归档和更新掌握度，用户自行判断即可。
 
-## 8. 前端联调流程与注意点
+## 9. 前端联调流程与注意点
 
 ### 作业流程
 

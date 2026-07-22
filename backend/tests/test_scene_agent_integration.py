@@ -252,19 +252,30 @@ def test_failed_assignment_task_returns_safe_user_message():
             task_id = upload.json()["data"]["task"]["id"]
 
             task = client.get(f"/api/tasks/{task_id}", headers=headers).json()["data"]
-            audit_logs = client.get("/api/audit-logs/me", headers=headers).json()["data"]
-            failed_event = next(item for item in audit_logs if item["event_type"] == "assignment.grading.failed")
+            from app.kernel.database import SessionLocal
+            from app.kernel.models import AuditLog
+
+            with SessionLocal() as db:
+                failed_event = next(
+                    item for item in db.query(AuditLog).all() if item.event_type == "assignment.grading.failed"
+                )
 
         assert task["status"] == "failed"
         assert task["error_message"] == "智能服务暂时不可用，请稍后重试"
         assert "secret" not in task["error_message"]
-        assert failed_event["error_message"] == "智能服务暂时不可用，请稍后重试"
-        assert "secret" not in failed_event["error_message"]
+        assert failed_event.error_message == "智能服务暂时不可用，请稍后重试"
+        assert "secret" not in failed_event.error_message
     finally:
         set_kernel_context(original_context)
 
 
 def _register(client: TestClient) -> str:
+    challenge = client.get("/api/auth/pow/challenge", params={"purpose": "register"}).json()["data"]
+    from hashlib import sha256
+
+    nonce = 0
+    while not sha256(f"{challenge['nonce_seed']}:{nonce}".encode()).hexdigest().startswith("0" * challenge["difficulty"]):
+        nonce += 1
     response = client.post(
         "/api/auth/register",
         json={
@@ -273,6 +284,8 @@ def _register(client: TestClient) -> str:
             "nickname": "Agent 场景学生",
             "grade": "高三",
             "main_subject": "数学",
+            "pow_challenge_id": challenge["challenge_id"],
+            "pow_nonce": str(nonce),
         },
     )
     assert response.status_code == 200

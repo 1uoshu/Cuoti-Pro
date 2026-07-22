@@ -10,8 +10,12 @@ class Settings(BaseSettings):
     app_name: str = "Smart Learning Agent API"
     app_env: str = "development"
     database_url: str = "sqlite:///./storage/smart_learning_agent.db"
+    redis_url: str = "redis://127.0.0.1:6379/0"
     jwt_secret_key: str = "development-only-change-me"
     jwt_expire_hours: int = 12
+    token_refresh_threshold_minutes: int = 60
+    pow_challenge_ttl_seconds: int = 120
+    pow_difficulty: int = 4
     openai_api_key: str = ""
     openai_base_url: str | None = None
     openai_model: str = ""
@@ -50,6 +54,10 @@ class Settings(BaseSettings):
             raise RuntimeError("生产环境必须设置独立的 JWT_SECRET_KEY")
         if not 0 <= self.review_confidence_threshold <= 1:
             raise RuntimeError("REVIEW_CONFIDENCE_THRESHOLD 必须在 0 到 1 之间")
+        if self.jwt_expire_hours <= 0 or self.token_refresh_threshold_minutes < 0:
+            raise RuntimeError("JWT_EXPIRE_HOURS 必须大于 0，TOKEN_REFRESH_THRESHOLD_MINUTES 不能小于 0")
+        if self.pow_challenge_ttl_seconds <= 0 or not 0 <= self.pow_difficulty <= 12:
+            raise RuntimeError("POW_CHALLENGE_TTL_SECONDS 必须大于 0，POW_DIFFICULTY 必须在 0 到 12 之间")
         if (
             self.sandbox_timeout_seconds <= 0
             or self.sandbox_memory_limit_mb <= 0

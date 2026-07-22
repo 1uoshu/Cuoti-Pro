@@ -1,4 +1,5 @@
 import uuid
+from hashlib import sha256
 
 from fastapi.testclient import TestClient
 
@@ -80,8 +81,8 @@ def test_duplicate_registration_returns_conflict():
             "password": "password123",
             "nickname": "测试学生",
         }
-        assert client.post("/api/auth/register", json=payload).status_code == 200
-        response = client.post("/api/auth/register", json=payload)
+        assert register_with_pow(client, payload).status_code == 200
+        response = register_with_pow(client, payload)
 
     assert response.status_code == 409
     assert response.json()["code"] == 409
@@ -121,31 +122,26 @@ def test_authenticated_scene_read_endpoints_return_envelopes():
         token = _register_user(client)
         headers = {"Authorization": f"Bearer {token}"}
 
-        for path in ["/api/dashboard", "/api/mastery", "/api/wrong-questions", "/api/assignments", "/api/audit-logs/me"]:
+        for path in ["/api/dashboard", "/api/mastery", "/api/wrong-questions", "/api/assignments"]:
             response = client.get(path, headers=headers)
 
             assert response.status_code == 200
             assert response.json()["code"] == 0
 
 
-def test_registration_is_audited():
+def test_registration_is_audited_without_exposing_logs_to_students():
     with TestClient(app) as client:
         token = _register_user(client)
-        response = client.get("/api/audit-logs/me", headers={"Authorization": f"Bearer {token}"})
+        response = client.get("/api/audit-logs", headers={"Authorization": f"Bearer {token}"})
 
-    assert response.status_code == 200
-    events = response.json()["data"]
-    assert events
-    assert events[0]["event_type"] == "auth.register"
-    assert events[0]["resource_type"] == "user"
-    assert "password" not in events[0]["metadata"]
+    assert response.status_code == 403
 
 
 def _register_user(client: TestClient) -> str:
     username = f"student_{uuid.uuid4().hex[:12]}"
-    response = client.post(
-        "/api/auth/register",
-        json={
+    response = register_with_pow(
+        client,
+        {
             "username": username,
             "password": "password123",
             "nickname": "测试学生",
@@ -155,3 +151,21 @@ def _register_user(client: TestClient) -> str:
     )
     assert response.status_code == 200
     return response.json()["data"]["access_token"]
+
+
+def register_with_pow(client: TestClient, payload: dict[str, str]) -> object:
+    challenge = client.get("/api/auth/pow/challenge", params={"purpose": "register"}).json()["data"]
+    payload = {**payload, "pow_challenge_id": challenge["challenge_id"], "pow_nonce": solve_pow(challenge)}
+    return client.post("/api/auth/register", json=payload)
+
+
+def solve_pow(challenge: dict[str, object]) -> str:
+    difficulty = int(challenge["difficulty"])
+    nonce_seed = str(challenge["nonce_seed"])
+    nonce = 0
+    prefix = "0" * difficulty
+    while True:
+        candidate = str(nonce)
+        if sha256(f"{nonce_seed}:{candidate}".encode()).hexdigest().startswith(prefix):
+            return candidate
+        nonce += 1

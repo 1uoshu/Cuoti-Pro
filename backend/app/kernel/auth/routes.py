@@ -1,11 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.kernel.auth.dependencies import get_current_user
+from app.kernel.auth.pow import PowPurpose, create_challenge, verify_and_consume_challenge
 from app.kernel.auth.schemas import LoginRequest, PasswordUpdateRequest, RegisterRequest, UserUpdateRequest
-from app.kernel.auth.security import create_access_token, hash_password, verify_password
+from app.kernel.auth.security import (
+    create_access_token,
+    hash_password,
+    verify_password,
+)
+from app.kernel.auth.sessions import revoke_all_user_tokens, revoke_token, whitelist_token
 from app.kernel.auth.services import serialize_user
 from app.kernel.context import get_kernel_context
 from app.kernel.database import get_db
@@ -16,9 +22,29 @@ from app.kernel.responses import ok
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _issue_auth_response(user: User) -> dict:
+    access_token = create_access_token(user.id)
+    whitelist_token(get_kernel_context().capabilities.redis, access_token)
+    return {"user": serialize_user(user), "access_token": access_token.value, "token_type": "bearer"}
+
+
+@router.get("/pow/challenge")
+def pow_challenge(request: Request, purpose: PowPurpose = Query(...)):
+    context = get_kernel_context()
+    return ok(create_challenge(context.capabilities.redis, context.settings, request, purpose))
+
+
 @router.post("/register")
 def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
-    audit = get_kernel_context().capabilities.audit
+    context = get_kernel_context()
+    verify_and_consume_challenge(
+        context.capabilities.redis,
+        request,
+        purpose="register",
+        challenge_id=payload.pow_challenge_id,
+        nonce=payload.pow_nonce,
+    )
+    audit = context.capabilities.audit
     existing = db.scalar(select(User).where(User.username == payload.username))
     if existing:
         audit.record(
@@ -31,12 +57,15 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
             commit=True,
         )
         raise HTTPException(status_code=409, detail="用户名已存在")
+    is_first_user = db.scalar(select(User.id).limit(1)) is None
     user = User(
         username=payload.username,
         password_hash=hash_password(payload.password),
         nickname=payload.nickname,
         grade=payload.grade,
         main_subject=payload.main_subject,
+        role="admin" if is_first_user else "student",
+        admin_slot=1 if is_first_user else None,
     )
     db.add(user)
     try:
@@ -55,6 +84,30 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     except IntegrityError:
         db.rollback()
         if db.scalar(select(User).where(User.username == payload.username)) is None:
+            if is_first_user:
+                user = User(
+                    username=payload.username,
+                    password_hash=hash_password(payload.password),
+                    nickname=payload.nickname,
+                    grade=payload.grade,
+                    main_subject=payload.main_subject,
+                    role="student",
+                )
+                db.add(user)
+                db.flush()
+                audit.record(
+                    db,
+                    event_type="auth.register",
+                    actor=user,
+                    resource_type="user",
+                    resource_id=user.id,
+                    summary="Student account registered after administrator race",
+                    metadata={"grade": user.grade, "main_subject": user.main_subject},
+                    request=request,
+                )
+                db.commit()
+                db.refresh(user)
+                return ok(_issue_auth_response(user))
             raise
         audit.record(
             db,
@@ -67,12 +120,20 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
         )
         raise HTTPException(status_code=409, detail="用户名已存在")
     db.refresh(user)
-    return ok({"user": serialize_user(user), "access_token": create_access_token(user.id), "token_type": "bearer"})
+    return ok(_issue_auth_response(user))
 
 
 @router.post("/login")
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    audit = get_kernel_context().capabilities.audit
+    context = get_kernel_context()
+    verify_and_consume_challenge(
+        context.capabilities.redis,
+        request,
+        purpose="login",
+        challenge_id=payload.pow_challenge_id,
+        nonce=payload.pow_nonce,
+    )
+    audit = context.capabilities.audit
     user = db.scalar(select(User).where(User.username == payload.username))
     if user is None or not verify_password(payload.password, user.password_hash):
         audit.record(
@@ -95,12 +156,14 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         request=request,
         commit=True,
     )
-    return ok({"user": serialize_user(user), "access_token": create_access_token(user.id), "token_type": "bearer"})
+    return ok(_issue_auth_response(user))
 
 
 @router.post("/logout")
 def logout(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    get_kernel_context().capabilities.audit.record(
+    context = get_kernel_context()
+    revoke_token(context.capabilities.redis, request.state.access_token)
+    context.capabilities.audit.record(
         db,
         event_type="auth.logout",
         actor=user,
@@ -165,6 +228,7 @@ def update_password(
         )
         raise HTTPException(status_code=400, detail="当前密码不正确")
     user.password_hash = hash_password(payload.new_password)
+    revoke_all_user_tokens(get_kernel_context().capabilities.redis, user.id)
     audit.record(
         db,
         event_type="auth.password.updated",

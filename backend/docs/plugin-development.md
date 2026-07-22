@@ -11,6 +11,7 @@ The backend uses a kernel-managed plugin architecture. The kernel owns shared ca
 - Audit logging, including event storage, redaction, and audit query routes.
 - User management, JWT authentication, and current-user dependencies.
 - File upload storage.
+- Redis exposed as `context.capabilities.redis` for plugin-owned ephemeral state.
 - OpenAI-compatible LLM gateway.
 - LangGraph agent runtime.
 - Restricted Python verification sandbox exposed as `context.capabilities.sandbox`.
@@ -35,6 +36,8 @@ Use `app.plugins.example` as the reference shape.
 - Use `context.capabilities.jobs.enqueue(...)` to schedule background work.
 - Use `context.capabilities.audit.record(...)` for security, authentication, upload, grading, and practice events. Do not store passwords, tokens, or full student answers in audit metadata.
 - Do not implement your own authentication. Use `app.kernel.auth.dependencies.get_current_user`.
+- Do not create authentication PoW challenges or session keys. Redis is available for plugin state, while
+  Bearer-token allowlisting, revocation, renewal, and PoW policy remain owned by the auth domain.
 - Do not call model providers directly. Use `context.capabilities.llm`.
 - Do not spawn verifier processes or import unrestricted execution libraries. Use
   `context.capabilities.sandbox.execute(...)` directly or the LLM gateway's bounded
@@ -46,7 +49,8 @@ Use `app.plugins.example` as the reference shape.
 
 ## Current kernel routes
 
-- `/api/audit-logs/me`: user-visible audit history backed by the kernel audit logger.
+- `/api/admin/users`, `/api/admin/config`: administrator-only user/session and runtime configuration management.
+- `/api/audit-logs`, `/api/audit-logs/export`: administrator-only immutable audit listing and CSV export.
 
 ## Current plugins
 

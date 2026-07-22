@@ -10,6 +10,7 @@ from app.kernel.jobs import JobRunner
 from app.kernel.knowledge_graph import KnowledgeGraphService
 from app.kernel.llm import LLMGateway
 from app.kernel.rag import RAGService
+from app.kernel.redis import RedisStore, build_redis_client
 from app.kernel.storage import UploadStorage
 
 
@@ -24,6 +25,7 @@ class KernelCapabilities:
     rag: RAGService
     knowledge_graph: KnowledgeGraphService
     storage: UploadStorage
+    redis: RedisStore
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,10 @@ def build_kernel_context(settings: Settings | None = None) -> KernelContext:
             rag=RAGService(),
             knowledge_graph=KnowledgeGraphService(),
             storage=UploadStorage(resolved_settings),
+            redis=build_redis_client(
+                resolved_settings.redis_url,
+                test_mode=resolved_settings.app_env.lower() == "test",
+            ),
         ),
     )
 

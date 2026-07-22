@@ -40,6 +40,7 @@ def capabilities(_: User = Depends(get_current_user)):
                 "rag": type(context.capabilities.rag).__name__,
                 "knowledge_graph": type(context.capabilities.knowledge_graph).__name__,
                 "storage": type(context.capabilities.storage).__name__,
+                "redis": type(context.capabilities.redis).__name__,
             },
         }
     )

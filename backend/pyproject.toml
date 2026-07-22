@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.18.5",
+    "cryptography>=46.0.0",
     "fastapi>=0.139.2",
     "httpx>=0.28.1",
     "langgraph>=1.2.9",
@@ -16,6 +17,7 @@ dependencies = [
     "pyjwt>=2.13.0",
     "pymupdf>=1.28.0",
     "pymysql>=1.2.0",
+    "redis>=6.4.0",
     "python-multipart>=0.0.32",
     "restrictedpython>=8.4",
     "sqlalchemy>=2.0.51",
@@ -25,6 +27,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "fakeredis>=2.32.1",
     "pytest>=8.3.0",
 ]
 
