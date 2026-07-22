@@ -18,9 +18,6 @@ class Settings(BaseSettings):
     openai_reasoning_effort: str = "xhigh"
     openai_disable_response_storage: bool = True
     openai_timeout_seconds: float = 120
-    agent_api_base_url: str = ""
-    agent_api_key: str = ""
-    agent_api_timeout_seconds: float = 120
     max_upload_mb: int = 10
     max_pdf_pages: int = 10
     cors_origins: str = "http://localhost:5173"
@@ -53,14 +50,6 @@ class Settings(BaseSettings):
             raise RuntimeError("生产环境必须设置独立的 JWT_SECRET_KEY")
         if not 0 <= self.review_confidence_threshold <= 1:
             raise RuntimeError("REVIEW_CONFIDENCE_THRESHOLD 必须在 0 到 1 之间")
-        if self.agent_api_base_url:
-            parsed = urlparse(self.agent_api_base_url)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise RuntimeError("AGENT_API_BASE_URL 必须是有效的 HTTP(S) 地址")
-            if not self.agent_api_key:
-                raise RuntimeError("配置 AGENT_API_BASE_URL 时必须同时设置 AGENT_API_KEY")
-        if self.agent_api_timeout_seconds <= 0:
-            raise RuntimeError("AGENT_API_TIMEOUT_SECONDS 必须大于 0")
         if (
             self.sandbox_timeout_seconds <= 0
             or self.sandbox_memory_limit_mb <= 0

@@ -8,12 +8,6 @@ from app.plugins.layered_practice.prompts import PRACTICE_SYSTEM_PROMPT, build_p
 from app.plugins.layered_practice.schemas import ModelPracticePayload
 
 
-DIFFICULTY_AGENT_VALUES = {
-    "基础补漏": "base",
-    "同类变式": "variant",
-    "综合提升": "advanced",
-    "高考真题": "exam",
-}
 MAX_BUILTIN_GENERATION_ATTEMPTS = 3
 
 
@@ -86,22 +80,6 @@ async def generate_practice_questions(
     count: int,
     recent_mistakes: list[str],
 ) -> ModelPracticePayload:
-    if context.capabilities.agent_api is not None:
-        unique_questions: dict[str, dict[str, str]] = {}
-        attempts = 0
-        while len(unique_questions) < count and attempts < count * 3:
-            attempts += 1
-            payload = await context.capabilities.agent_api.generate_practice(
-                student_id=student_id,
-                weak_points=knowledge_point,
-                difficulty=DIFFICULTY_AGENT_VALUES[difficulty],
-            )
-            for question in _normalize_agent_practice_questions(payload, knowledge_point):
-                unique_questions.setdefault(question["content"], question)
-        if len(unique_questions) < count:
-            raise ValueError("Agent practice question count does not match request")
-        return ModelPracticePayload.model_validate({"questions": list(unique_questions.values())[:count]})
-
     workflow = build_practice_workflow(context)
     state = await workflow.ainvoke(
         {
@@ -123,13 +101,6 @@ async def grade_practice_answer(
     question: dict[str, Any],
     student_answer: str,
 ) -> dict[str, Any]:
-    if context.capabilities.agent_api is not None:
-        payload = await context.capabilities.agent_api.answer_practice(
-            student_id=student_id,
-            question=question,
-            student_answer=student_answer,
-        )
-        return normalize_question_grade(payload, default_confidence=0)
     return await regrade_text_question(
         context,
         subject,
@@ -153,28 +124,3 @@ def _validate_practice_payload(
     if any(question.knowledge_point.strip() != expected_knowledge_point for question in result.questions):
         raise ValueError(f'generated questions must use knowledge_point "{expected_knowledge_point}" exactly')
     return result
-
-
-def _normalize_agent_practice_questions(
-    payload: dict[str, Any],
-    knowledge_point: str,
-) -> list[dict[str, Any]]:
-    raw_questions: Any = payload.get("questions")
-    if not isinstance(raw_questions, list) or not raw_questions:
-        raise ValueError("Agent practice result must contain a non-empty questions list")
-
-    questions: list[dict[str, str]] = []
-    for item in raw_questions:
-        if not isinstance(item, dict):
-            raise ValueError("Agent practice question must be a JSON object")
-        questions.append(
-            {
-                "content": required_text(item, "content", "question", "question_text"),
-                "standard_answer": required_text(item, "standard_answer", "answer", "correct_answer"),
-                "explanation": required_text(item, "explanation", "analysis", "reason"),
-                "knowledge_point": knowledge_point,
-                "confidence": float(item["confidence"]) if item.get("confidence") is not None else 0,
-                "confidence_warning": item.get("confidence_warning") or "外部 Agent 未提供可靠验算置信度，请自行判断",
-            }
-        )
-    return questions

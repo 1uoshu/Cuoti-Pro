@@ -86,7 +86,6 @@ def test_builtin_agent_grades_every_page_of_a_pdf(tmp_path: Path):
     context = SimpleNamespace(
         settings=SimpleNamespace(review_confidence_threshold=0.85),
         capabilities=SimpleNamespace(
-            agent_api=None,
             agent_runtime=AgentRuntime(),
             llm=llm,
             sandbox=PythonSandbox(),
@@ -158,7 +157,6 @@ def test_builtin_practice_agent_uses_langgraph_context_generation_and_validation
     context = SimpleNamespace(
         settings=SimpleNamespace(review_confidence_threshold=0.85),
         capabilities=SimpleNamespace(
-            agent_api=None,
             agent_runtime=AgentRuntime(),
             llm=llm,
             sandbox=PythonSandbox(),
@@ -214,7 +212,6 @@ def test_builtin_practice_agent_retries_a_question_from_the_wrong_knowledge_poin
     context = SimpleNamespace(
         settings=SimpleNamespace(review_confidence_threshold=0.85),
         capabilities=SimpleNamespace(
-            agent_api=None,
             agent_runtime=AgentRuntime(),
             llm=llm,
             sandbox=PythonSandbox(),

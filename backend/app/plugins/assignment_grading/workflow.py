@@ -1,10 +1,10 @@
 import base64
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import fitz
 
-from app.kernel.agent import AgentStep, as_float, first, normalize_question_grade, optional_text, required_text
+from app.kernel.agent import AgentStep
 from app.kernel.context import KernelContext
 from app.plugins.assignment_grading.prompts import (
     GRADING_SYSTEM_PROMPT,
@@ -45,25 +45,11 @@ def _load_upload_as_data_urls(file_path: str) -> list[str]:
 
 def build_grading_workflow(context: KernelContext):
     async def load_node(state: GradingState) -> GradingState:
-        if context.capabilities.agent_api is not None:
-            return {}
         return {"image_data_urls": _load_upload_as_data_urls(state["file_path"])}
 
     async def grade_node(state: GradingState) -> GradingState:
         grade_label = state.get("grade") or ""
         subject = state["subject"]
-        if context.capabilities.agent_api is not None:
-            payload = await context.capabilities.agent_api.grade_file(
-                student_id=state["student_id"],
-                file_path=Path(state["file_path"]),
-                question=(
-                    f"请识别并批改这份{grade_label}{subject}作业中的全部题目，"
-                    "返回逐题题干、学生答案、正确答案、分值、对错、知识点和解析。"
-                ),
-                subject=subject,
-            )
-            return {"result": _normalize_agent_grade_payload(payload, subject)}
-
         data = await context.capabilities.llm.vision_json_many_with_python(
             GRADING_SYSTEM_PROMPT,
             build_assignment_grading_prompt(grade=grade_label, subject=subject),
@@ -107,17 +93,6 @@ async def regrade_text_question(
     *,
     student_id: str | None = None,
 ) -> dict:
-    if context.capabilities.agent_api is not None:
-        if student_id is None:
-            raise ValueError("student_id is required for Agent API grading")
-        payload = await context.capabilities.agent_api.grade_text(
-            student_id=student_id,
-            question=f"{question_text}\n参考答案：{correct_answer or '请推导正确答案'}",
-            student_answer=student_answer or "",
-            subject=subject,
-        )
-        return normalize_question_grade(payload, default_confidence=0)
-
     data = await context.capabilities.llm.chat_json_with_python(
         REGRADE_SYSTEM_PROMPT,
         build_question_regrade_prompt(
@@ -134,58 +109,3 @@ async def regrade_text_question(
     if not required.issubset(data):
         raise ValueError("model regrade result is missing required fields")
     return data
-
-
-def _normalize_agent_grade_payload(payload: dict[str, Any], subject: str) -> ModelGradePayload:
-    raw_questions = payload.get("questions")
-    if not isinstance(raw_questions, list) or not raw_questions:
-        raise ValueError("Agent grading result must contain a non-empty questions list")
-
-    questions: list[dict[str, Any]] = []
-    for index, raw_question in enumerate(raw_questions, start=1):
-        if not isinstance(raw_question, dict):
-            raise ValueError("Agent grading question must be a JSON object")
-        grade = normalize_question_grade(raw_question, default_confidence=0)
-        questions.append(
-            {
-                "question_number": str(first(raw_question, "question_number", "number", default=index)),
-                "question_text": required_text(raw_question, "question_text", "content", "question"),
-                "student_answer": optional_text(raw_question, "student_answer", "answer_text"),
-                "correct_answer": optional_text(raw_question, "correct_answer", "standard_answer", "answer"),
-                "question_type": optional_text(raw_question, "question_type", "type"),
-                "knowledge_point": required_text(raw_question, "knowledge_point", "knowledge"),
-                **grade,
-            }
-        )
-
-    total_score = as_float(
-        first(payload, "total_score", default=sum(item["max_score"] for item in questions)),
-        "total_score",
-    )
-    student_score = as_float(
-        first(payload, "student_score", "score", default=sum(item["score"] for item in questions)),
-        "student_score",
-    )
-    raw_weak_points = first(payload, "weak_points", default=None)
-    if isinstance(raw_weak_points, list):
-        weak_points = [str(item).strip() for item in raw_weak_points if str(item).strip()]
-    else:
-        weak_points = [
-            item["knowledge_point"]
-            for item in questions
-            if not item["is_correct"] and item["knowledge_point"]
-        ]
-    weak_points = list(dict.fromkeys(weak_points))
-    overall_comment = str(
-        first(payload, "overall_comment", "comment", "summary", default=f"已完成 {len(questions)} 道题批改")
-    ).strip()
-    return ModelGradePayload.model_validate(
-        {
-            "subject": subject,
-            "questions": questions,
-            "total_score": total_score,
-            "student_score": student_score,
-            "overall_comment": overall_comment,
-            "weak_points": weak_points,
-        }
-    )

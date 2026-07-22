@@ -39,7 +39,6 @@ Use `app.plugins.example` as the reference shape.
 - Do not spawn verifier processes or import unrestricted execution libraries. Use
   `context.capabilities.sandbox.execute(...)` directly or the LLM gateway's bounded
   `python_verify` tool loop.
-- Do not call the external Agent service directly. Use `context.capabilities.agent_api`; the kernel owns its URL, JWT, timeout, and error handling.
 - Do not create a separate RAG or graph connection. Use `context.capabilities.rag` and `context.capabilities.knowledge_graph`.
 - Keep plugin `__init__.py` lightweight. Do not import routes, services, or models there.
 - Put user-facing routes in `routes.py`, business behavior in `service.py`, persistence models in `models.py`, and wire metadata in `plugin.py`.

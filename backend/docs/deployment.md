@@ -28,9 +28,7 @@ Stopping containers does not delete them.
 
 ## Configuration
 
-The built-in Agent is the default when `AGENT_API_BASE_URL` is empty. It directly reuses
-the `OPENAI_*` values. Set `AGENT_API_BASE_URL` and its service JWT only when testing the
-optional external Agent adapter.
+The built-in Agent directly reuses the `OPENAI_*` values.
 
 `OPENAI_BASE_URL` is the prefix immediately before `/responses`. For example,
 `https://api.mhapi.cn` produces `https://api.mhapi.cn/responses`, while the official

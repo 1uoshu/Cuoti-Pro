@@ -5,8 +5,7 @@ Status: demo implementation for task-book scenes 1 and 2.
 ## Ownership
 
 The Agent runs inside this backend. It reuses `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and
-`OPENAI_MODEL`; no second Agent service or key is required. `AGENT_API_*` remains an
-optional compatibility adapter for the contract in `agent_api.json`.
+`OPENAI_MODEL`; no second Agent service or key is required.
 
 The kernel owns shared infrastructure:
 

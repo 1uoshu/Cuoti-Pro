@@ -5,7 +5,6 @@
 The test suite covers:
 
 - backend HTTP completion of assignment grading and layered practice;
-- external Agent request/response normalization and JWT handling;
 - built-in LangGraph workflow nodes;
 - every page of a multi-page PDF reaching the multimodal model;
 - bounded `python_verify` tool calls;

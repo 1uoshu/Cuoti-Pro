@@ -7,85 +7,106 @@ from app.kernel.context import get_kernel_context, set_kernel_context
 from app.main import app
 
 
-class SceneAgentAPI:
-    async def grade_file(self, **_):
+class SceneLLM:
+    async def vision_json_many_with_python(self, *_, **__):
         return {
+            "subject": "数学",
             "questions": [
                 {
-                    "number": "1",
-                    "question": "1 + 1 = ?",
+                    "question_number": "1",
+                    "question_text": "1 + 1 = ?",
                     "student_answer": "3",
-                    "answer": "2",
+                    "correct_answer": "2",
                     "knowledge_point": "整数加法",
                     "score": 0,
                     "max_score": 10,
-                    "correct": False,
-                    "reason": "计算错误",
+                    "is_correct": False,
+                    "explanation": "计算错误",
                     "confidence": 0.99,
                 },
                 {
-                    "number": "2",
-                    "question": "2 + 2 = ?",
+                    "question_number": "2",
+                    "question_text": "2 + 2 = ?",
                     "student_answer": "4",
-                    "answer": "4",
+                    "correct_answer": "4",
                     "knowledge_point": "整数加法",
                     "score": 10,
                     "max_score": 10,
-                    "correct": True,
-                    "reason": "回答正确",
+                    "is_correct": True,
+                    "explanation": "回答正确",
                     "confidence": 0.99,
                 },
-            ]
+            ],
+            "total_score": 20,
+            "student_score": 10,
+            "overall_comment": "需要巩固整数加法",
+            "weak_points": ["整数加法"],
         }
 
-    async def generate_practice(self, **_):
-        return {
-            "questions": [
-                {"question": "3 + 3 = ?", "answer": "6", "analysis": "整数相加"},
-                {"question": "4 + 4 = ?", "answer": "8", "analysis": "整数相加"},
-            ]
-        }
+    async def chat_json_with_python(self, _system_prompt, user_prompt, *_args, **kwargs):
+        if kwargs["max_tokens"] == 3000:
+            return {
+                "questions": [
+                    {
+                        "content": "3 + 3 = ?",
+                        "standard_answer": "6",
+                        "explanation": "整数相加",
+                        "knowledge_point": "整数加法",
+                        "confidence": 0.99,
+                    },
+                    {
+                        "content": "4 + 4 = ?",
+                        "standard_answer": "8",
+                        "explanation": "整数相加",
+                        "knowledge_point": "整数加法",
+                        "confidence": 0.99,
+                    },
+                ]
+            }
 
-    async def answer_practice(self, **kwargs):
-        correct = kwargs["student_answer"] == kwargs["question"]["standard_answer"]
+        correct = "<student_answer>6</student_answer>" in user_prompt
         return {
-            "correct": correct,
+            "is_correct": correct,
             "score": 4 if correct else 0,
             "max_score": 5 if correct else 10,
-            "reason": "回答正确" if correct else "答案不正确",
+            "explanation": "回答正确" if correct else "答案不正确",
+            "confidence": 0,
         }
 
 
-class LowConfidenceAgentAPI(SceneAgentAPI):
-    async def grade_file(self, **_):
+class LowConfidenceLLM(SceneLLM):
+    async def vision_json_many_with_python(self, *_, **__):
         return {
+            "subject": "数学",
             "questions": [
                 {
-                    "number": "1",
-                    "question": "识别不清的手写公式",
+                    "question_number": "1",
+                    "question_text": "识别不清的手写公式",
                     "student_answer": "?",
-                    "answer": "待确认",
+                    "correct_answer": "待确认",
                     "knowledge_point": "函数",
                     "score": 0,
                     "max_score": 10,
-                    "correct": False,
-                    "reason": "图像识别置信度不足",
+                    "is_correct": False,
+                    "explanation": "图像识别置信度不足",
+                    "confidence": 0,
                 }
-            ]
+            ],
+            "total_score": 10,
+            "student_score": 0,
+            "overall_comment": "图像识别置信度不足",
+            "weak_points": ["函数"],
         }
 
 
-class FailingAgentAPI(SceneAgentAPI):
-    async def grade_file(self, **_):
-        raise RuntimeError("upstream secret and stack details")
+class FailingLLM(SceneLLM):
+    async def vision_json_many_with_python(self, *_, **__):
+        raise RuntimeError("model secret and stack details")
 
 
 def test_scene_one_and_two_complete_through_public_backend_apis():
     original_context = get_kernel_context()
-    test_context = replace(
-        original_context,
-        capabilities=replace(original_context.capabilities, agent_api=SceneAgentAPI()),
-    )
+    test_context = replace(original_context, capabilities=replace(original_context.capabilities, llm=SceneLLM()))
     set_kernel_context(test_context)
     try:
         with TestClient(app) as client:
@@ -185,10 +206,7 @@ def test_scene_one_and_two_complete_through_public_backend_apis():
 
 def test_low_confidence_result_warns_user_without_blocking_learning_updates():
     original_context = get_kernel_context()
-    test_context = replace(
-        original_context,
-        capabilities=replace(original_context.capabilities, agent_api=LowConfidenceAgentAPI()),
-    )
+    test_context = replace(original_context, capabilities=replace(original_context.capabilities, llm=LowConfidenceLLM()))
     set_kernel_context(test_context)
     try:
         with TestClient(app) as client:
@@ -218,10 +236,7 @@ def test_low_confidence_result_warns_user_without_blocking_learning_updates():
 
 def test_failed_assignment_task_returns_safe_user_message():
     original_context = get_kernel_context()
-    test_context = replace(
-        original_context,
-        capabilities=replace(original_context.capabilities, agent_api=FailingAgentAPI()),
-    )
+    test_context = replace(original_context, capabilities=replace(original_context.capabilities, llm=FailingLLM()))
     set_kernel_context(test_context)
     try:
         with TestClient(app) as client:

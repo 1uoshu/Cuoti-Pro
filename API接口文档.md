@@ -294,7 +294,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 }
 ```
 
-`content` 若传入不能为空，`knowledge_point` 最长 128 字符。接口会再次调用内置/外部 Agent，可能耗时较长；成功返回更新后的 `Question`，同时重算作业总分、薄弱点、错题归档和掌握度。
+`content` 若传入不能为空，`knowledge_point` 最长 128 字符。接口会再次调用内置学习 Agent，可能耗时较长；成功返回更新后的 `Question`，同时重算作业总分、薄弱点、错题归档和掌握度。
 
 ## 5. 场景 2：错题本与薄弱知识点分层练习
 
@@ -364,7 +364,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 - `difficulty` 必须是：`基础补漏`、`同类变式`、`综合提升`、`高考真题`
 - `question_count`：1-10，默认 5
 
-生成是同步长耗时请求，成功返回 `data: Practice`（状态 `ready`）。内置 Agent 会校验题数、知识点、重复题和置信度；外部 Agent 适配器在最多 `question_count * 3` 次调用内收集去重题目，仍不足则失败。
+生成是同步长耗时请求，成功返回 `data: Practice`（状态 `ready`）。内置 Agent 会校验题数、知识点、重复题和置信度。
 
 ### `GET /api/practices/{practice_id}`（需鉴权）
 
@@ -422,9 +422,9 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 ## 7. Agent、验算与置信度行为
 
-默认模式是项目内置 Agent，直接复用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。只有配置 `AGENT_API_BASE_URL` 和 `AGENT_API_KEY` 时才启用可选外部 Agent 适配器；前端不需要也不应该持有这些服务凭据。
+内置 Agent 直接复用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。
 
-内置 Agent 对数学、物理等可计算题可调用受限 `python_verify`（允许的数学库由后端沙箱控制），并要求检查数学等价性、定义域、边界条件和物理量纲。不同但等价的推导不因形式不同被判错；验算不确定时降低 `confidence`。外部 Agent 未提供 `confidence` 时后端按 `0` 处理并提示低置信度，不会默认视为完全可信。
+内置 Agent 对数学、物理等可计算题可调用受限 `python_verify`（允许的数学库由后端沙箱控制），并要求检查数学等价性、定义域、边界条件和物理量纲。不同但等价的推导不因形式不同被判错；验算不确定时降低 `confidence`。
 
 默认低置信度阈值为 `0.85`（`REVIEW_CONFIDENCE_THRESHOLD`）。低于阈值时返回 `needs_review=true` 或 `confidence_warning`，这是提示而非人工审核工作流：结果仍会完成、归档和更新掌握度，用户自行判断即可。
 
@@ -453,20 +453,7 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 - Agent 生成、判题和重新批改可能超过普通 Axios 默认超时；创建/提交练习建议使用 300 秒超时。
 - 不要把 JWT、Agent key 或完整上传内容写入日志，也不要把不可信文本插入 HTML。
 
-## 9. 外部 Agent 适配器（仅后端配置，不是前端 API）
-
-如部署方选择外部 Agent，后端会向 `AGENT_API_BASE_URL` 发送 `Authorization: Bearer <AGENT_API_KEY>`，不会转发学生 JWT。其兼容端点来自 `backend/docs/agent_api.json`：
-
-| 用途 | 方法与路径 | 请求 |
-| --- | --- | --- |
-| 图片作业 | `POST /api/grade/image` | multipart：`student_id`、`question`、`subject`、`image` |
-| PDF 作业 | `POST /api/grade/pdf` | multipart：`student_id`、`question`、`subject`、`pdf` |
-| 单题重新批改 | `POST /api/grade` | JSON：`student_id`、`question`、`student_answer`、`subject` |
-| 生成练习 | `POST /api/practice/generate` | form：`student_id`、`weak_points`、`difficulty`（`base`/`variant`/`advanced`/`exam`） |
-| 练习判题 | `POST /api/practice/answer` | form：`student_id`、`question_json`、`student_answer` |
-
-当前后端学生端 API 可以冻结供前端开发，前提是以本文为准。`backend/docs/api.md` 仅作为本合同的后端目录索引；`backend/docs/agent_api.json` 是外部适配器输入合同，不是前端调用入口。
-## 10. 后续迭代 API 合同预览（当前版本未实现，仅作前端预研参考）
+## 9. 后续迭代 API 合同预览（当前版本未实现，仅作前端预研参考）
 
 以下接口来自任务书场景 3、4、5 的需求分析，当前后端尚未提供路由实现。本节作为前瞻性 API 合同，供前端团队评估架构和预留路由，实际调用将以后续发布的实现为准。
 
@@ -802,8 +789,8 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 
 ---
 
-## 11. 合同审计结论（更新）
+## 10. 合同审计结论（更新）
 
-当前后端学生端 API 可以冻结供前端开发，前提是以本文为准。`backend/docs/api.md` 仅作为本合同的后端目录索引；`backend/docs/agent_api.json` 是外部适配器输入合同，不是前端调用入口。
+当前后端学生端 API 可以冻结供前端开发，前提是以本文为准。`backend/docs/api.md` 仅作为本合同的后端目录索引。
 
-第 10 节列出的场景 3、4 接口为后续迭代 API 合同预览，当前版本后端不提供对应路由实现，前端不应在 v1.0 版本中对其发起实际调用。联调验收仅覆盖第 2-8 节描述的场景 1 和场景 2。
+第 9 节列出的场景 3、4 接口为后续迭代 API 合同预览，当前版本后端不提供对应路由实现，前端不应在 v1.0 版本中对其发起实际调用。联调验收仅覆盖第 2-8 节描述的场景 1 和场景 2。
