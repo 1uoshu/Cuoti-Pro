@@ -1,4 +1,4 @@
-# Smart Learning Agent API 接口文档
+﻿# Smart Learning Agent API 接口文档
 
 合同版本：`v1.0`（2026-07-22；当前 URL 前缀仍为 `/api`）
 状态：场景 1「作业上传与批改」和场景 2「错题本与薄弱知识点分层练习」的前端联调合同。
@@ -465,8 +465,345 @@ JWT 当前使用 HS256，默认有效期 12 小时（`JWT_EXPIRE_HOURS`）。没
 | 生成练习 | `POST /api/practice/generate` | form：`student_id`、`weak_points`、`difficulty`（`base`/`variant`/`advanced`/`exam`） |
 | 练习判题 | `POST /api/practice/answer` | form：`student_id`、`question_json`、`student_answer` |
 
-外部响应可包在 `data`、`result`、`output` 等对象中；后端会归一化字段别名并严格校验题目、分数、布尔值和置信度。外部服务的 200 响应结构在原 OpenAPI 中未定义，不能替代本文件的学生端合同。
+当前后端学生端 API 可以冻结供前端开发，前提是以本文为准。`backend/docs/api.md` 仅作为本合同的后端目录索引；`backend/docs/agent_api.json` 是外部适配器输入合同，不是前端调用入口。
+## 10. 后续迭代 API 合同预览（当前版本未实现，仅作前端预研参考）
 
-## 10. 合同审计结论
+以下接口来自任务书场景 3、4、5 的需求分析，当前后端尚未提供路由实现。本节作为前瞻性 API 合同，供前端团队评估架构和预留路由，实际调用将以后续发布的实现为准。
+
+**本节中的所有接口均为 `需鉴权`，遵循第 1 节的统一外层、JWT 鉴权和错误码约定。**
+
+---
+
+### 10.1 场景 3 — 复盘报告与阶段评估（`assessmentApi`）
+
+#### 公共数据结构
+
+**阶段考核 `Exam`**
+
+```json
+{
+  "id": 1,
+  "title": "函数单元测验",
+  "subject": "数学",
+  "exam_type": "单元卷",
+  "status": "completed",
+  "total_score": 100.0,
+  "student_score": 82.0,
+  "time_limit_minutes": 45,
+  "created_at": "2026-07-22T10:00:00",
+  "questions": []
+}
+```
+
+- `exam_type` 枚举：`专项小测`、`单元卷`、`模拟卷`、`高考专题卷`
+- `status` 枚举：`generating`、`ready`、`in_progress`、`completed`、`failed`
+- `time_limit_minutes`：`null` 表示不限时
+- `questions`：结构复用 `PracticeQuestion`（每道题含 `id`、`content`、`standard_answer`、`confidence`、`answers` 等）
+
+**复盘报告 `Report`**
+
+```json
+{
+  "id": 1,
+  "period": "周报",
+  "start_date": "2026-07-15",
+  "end_date": "2026-07-21",
+  "subject": "数学",
+  "assignment_count": 3,
+  "wrong_count": 8,
+  "practice_count": 2,
+  "overall_score": 82.0,
+  "previous_overall_score": 75.0,
+  "score_change": 7.0,
+  "weak_points": [
+    {"knowledge_point": "导数单调性", "mastery_score": 40.0, "change": 10.0}
+  ],
+  "high_freq_errors": [
+    {"knowledge_point": "导数定义", "wrong_count": 3}
+  ],
+  "mastery_changes": [
+    {"knowledge_point": "导数单调性", "before": 30.0, "after": 40.0}
+  ]
+}
+```
+
+- `period` 枚举：`日报`、`周报`、`单元报告`、`月报`、`学期报告`
+- `score_change`：正值表示进步，负值表示退步
+- `mastery_changes`：本周期内有变化的知识点掌握度变化
+
+---
+
+#### `GET /api/reports`（后续迭代）
+
+可选查询参数：
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `period` | 字符串 | 精确过滤报告类型：`日报`、`周报`、`单元报告`、`月报`、`学期报告` |
+| `subject` | 字符串 | 按学科精确过滤 |
+
+返回 `Report[]`，按 `start_date` 倒序。
+
+#### `GET /api/reports/{report_id}`（后续迭代）
+
+返回完整 `Report`，包含 `mastery_changes` 和 `weak_points` 详情。
+
+---
+
+#### `GET /api/reports/score-compare`（后续迭代，`getScoreCompare`）
+
+跨周期分数对比。将当前周期与上一周期（或指定基准周期）的核心指标并列展示。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | :---: | --- |
+| `period` | 字符串 | 是 | 对比周期基准：`周报`、`月报`、`学期报告` |
+| `subject` | 字符串 | 否 | 按学科过滤，不传则为全部学科汇总 |
+| `reference_date` | ISO 日期 | 否 | 对比截止日期，默认当天 |
+
+返回：
+
+```json
+{
+  "subject": "数学",
+  "period": "周报",
+  "current_week_start": "2026-07-15",
+  "current_week_end": "2026-07-21",
+  "previous_week_start": "2026-07-08",
+  "previous_week_end": "2026-07-14",
+  "metrics": {
+    "overall_score": {"current": 82.0, "previous": 75.0, "change": 7.0},
+    "assignment_count": {"current": 3, "previous": 2, "change": 1},
+    "wrong_count": {"current": 8, "previous": 12, "change": -4},
+    "practice_count": {"current": 2, "previous": 1, "change": 1}
+  },
+  "segments": [
+    {
+      "knowledge_point": "导数单调性",
+      "mastery_score": {"current": 60.0, "previous": 40.0, "change": 20.0}
+    },
+    {
+      "knowledge_point": "三角函数",
+      "mastery_score": {"current": 50.0, "previous": 55.0, "change": -5.0}
+    }
+  ]
+}
+```
+
+`change` 正值表示改善，负值表示退步。`metrics` 中的 `wrong_count` 为负表示错题减少（是好事）。
+
+---
+
+#### `POST /api/exams`（后续迭代）
+
+创建阶段考核（专项小测/单元卷/模拟卷）。请求 JSON：
+
+```json
+{
+  "subject": "数学",
+  "exam_type": "单元卷",
+  "knowledge_points": ["导数定义", "导数单调性", "导数极值"],
+  "question_count": 10,
+  "time_limit_minutes": 45,
+  "difficulty": "综合提升"
+}
+```
+
+- `exam_type`：`专项小测`、`单元卷`、`模拟卷`、`高考专题卷`
+- `knowledge_points`：至少 1 个知识点，最多 10 个
+- `question_count`：1-30，默认 10
+- `time_limit_minutes`：`null` 或 5-180 分钟，`null` 为不限时
+- `difficulty`：复用练习难度的四级枚举
+
+生成是同步长耗时请求，成功返回 `data: Exam`（状态 `ready`，含已生成题目）。
+
+#### `GET /api/exams`（后续迭代）
+
+返回当前用户的 `Exam[]`，按 `created_at` 倒序。
+
+#### `GET /api/exams/{exam_id}`（后续迭代）
+
+返回完整 `Exam`，包含所有题目及（若已提交）答案和判分结果。
+
+#### `POST /api/exams/{exam_id}/start`（后续迭代）
+
+开始限时作答，记录开始时间。若 `time_limit_minutes` 非空，服务端开始计时。返回 `{"started_at": "..."}`。
+
+#### `POST /api/exams/{exam_id}/submit`（后续迭代）
+
+一次提交考卷全部答案。请求和响应结构与 `POST /api/practices/{practice_id}/submit` 一致。
+
+若设定了限时且超时提交，返回 `400` 并附 `{"reason": "time_exceeded", "elapsed_seconds": 3000}`。
+
+---
+
+### 10.2 场景 4 — 长期追踪与知识图谱（`trackingApi`）
+
+#### 公共数据结构
+
+**掌握度变化 `MasteryChange`**
+
+```json
+{
+  "subject": "数学",
+  "knowledge_point": "导数单调性",
+  "changes": [
+    {"date": "2026-07-01", "mastery_score": 30.0, "event": "作业批改"},
+    {"date": "2026-07-08", "mastery_score": 40.0, "event": "分层练习"},
+    {"date": "2026-07-15", "mastery_score": 55.0, "event": "阶段考核"},
+    {"date": "2026-07-22", "mastery_score": 60.0, "event": "分层练习"}
+  ],
+  "trend": "improving",
+  "current_score": 60.0,
+  "target_score": 80.0
+}
+```
+
+- `trend`：`improving`（上升）、`stable`（持平）、`declining`（下降）
+- `changes[i].event`：触发掌握度变化的事件类型
+- `target_score`：预设达标线，默认 80.0
+
+**复习任务 `ReviewTask`**
+
+```json
+{
+  "id": 1,
+  "subject": "数学",
+  "knowledge_point": "导数单调性",
+  "days_since_last_practice": 7,
+  "current_mastery": 55.0,
+  "review_due_date": "2026-07-29",
+  "status": "pending",
+  "review_cycle": 7
+}
+```
+
+- `review_cycle`：7、14 或 30 天
+- `status`：`pending`、`completed`、`overdue`
+
+---
+
+#### `GET /api/tracking/mastery-change`（后续迭代，`getMasteryChange`）
+
+查询某个知识点（或全部知识点）在指定时间窗口内的掌握度变化轨迹。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | :---: | --- |
+| `subject` | 字符串 | 否 | 按学科过滤 |
+| `knowledge_point` | 字符串 | 否 | 按知识点过滤。不传则返回全部知识点的变化 |
+| `days` | 整数 | 否 | 统计最近 N 天，默认 30，范围 7-180 |
+
+返回：
+
+```json
+{
+  "time_window": {"start": "2026-06-22", "end": "2026-07-22", "days": 30},
+  "items": [
+    {
+      "subject": "数学",
+      "knowledge_point": "导数单调性",
+      "changes": [
+        {"date": "2026-07-01", "mastery_score": 30.0, "event": "作业批改"},
+        {"date": "2026-07-08", "mastery_score": 40.0, "event": "分层练习"},
+        {"date": "2026-07-22", "mastery_score": 60.0, "event": "分层练习"}
+      ],
+      "trend": "improving",
+      "current_score": 60.0,
+      "target_score": 80.0
+    }
+  ],
+  "summary": {
+    "improving_count": 5,
+    "stable_count": 3,
+    "declining_count": 1
+  }
+}
+```
+
+不传 `knowledge_point` 时，`items` 包含所有有变化记录的知识点，按 `current_score` 从低到高排列（优先关注最薄弱项）。
+
+#### `GET /api/tracking/review-schedule`（后续迭代）
+
+返回当前用户即将到期或已逾期的滚动复习任务列表。
+
+查询参数：
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `status` | 字符串 | 可选 `pending`（默认）、`overdue`、`completed` |
+| `cycle` | 整数 | 可选 7、14、30，不传返回全部 |
+
+返回 `ReviewTask[]`，按 `review_due_date` 升序（即将到期优先）。
+
+#### `POST /api/tracking/review/{review_task_id}/complete`（后续迭代）
+
+标记一个复习任务为已完成。系统自动触发该知识点的新一轮掌握度评估，并安排下一次复习（若当前周期为 7 天，完成后进入 14 天；14 天完成后进入 30 天；30 天完成后该知识点从活跃跟踪中毕业）。
+
+请求体可包含练习结果（可选，用于更新掌握度）：
+
+```json
+{
+  "practice_task_id": 42,
+  "self_evaluation": "已掌握"
+}
+```
+
+返回更新后的 `ReviewTask`（状态 `completed`，含下一次复习到期日或 `null` 表示已毕业）。
+
+#### `GET /api/knowledge-graph`（后续迭代）
+
+返回当前用户的知识掌握图谱可视化数据。
+
+查询参数：
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `subject` | 字符串 | 按学科过滤，不传返回全部学科 |
+
+返回：
+
+```json
+{
+  "nodes": [
+    {"id": "数学-导数定义", "label": "导数定义", "subject": "数学", "mastery_score": 75.0, "status": "巩固中"},
+    {"id": "数学-导数单调性", "label": "导数单调性", "subject": "数学", "mastery_score": 40.0, "status": "薄弱"},
+    {"id": "数学-极值与最值", "label": "极值与最值", "subject": "数学", "mastery_score": 85.0, "status": "已掌握"}
+  ],
+  "edges": [
+    {"source": "数学-导数定义", "target": "数学-导数单调性", "relation": "前置依赖"},
+    {"source": "数学-导数单调性", "target": "数学-极值与最值", "relation": "前置依赖"}
+  ]
+}
+```
+
+- `node.status`：`未学习`（≤20）、`薄弱`（≤45）、`巩固中`（≤80）、`已掌握`（>80）
+- `edges[i].relation`：知识点间关系标签
+
+---
+
+### 10.3 个人中心（`profileApi`）补充说明
+
+当前版本个人资料管理已通过第 3 节「认证 API」的以下接口覆盖：
+
+- `GET /api/auth/me` — 获取当前用户资料
+- `PUT /api/auth/me` — 更新昵称、年级、学校、主学科
+- `PUT /api/auth/password` — 修改密码
+
+后续迭代可能扩展的接口（不作为当前联调依据）：
+
+- `GET /api/profile/stats` — 个人学习统计摘要（累计上传数、累计练习数、总错题数、连续打卡天数等）
+- `GET /api/profile/activity` — 近期学习活动时间线（按日期聚合的上传、练习、考核事件流）
+- `PUT /api/profile/avatar` — 头像上传（multipart，限制格式和大小）
+
+当前前端 `/profile` 页面仅需对接第 3 节的已有接口即可完成基础功能。上述扩展接口将在后续迭代中视优先级实现。
+
+---
+
+## 11. 合同审计结论（更新）
 
 当前后端学生端 API 可以冻结供前端开发，前提是以本文为准。`backend/docs/api.md` 仅作为本合同的后端目录索引；`backend/docs/agent_api.json` 是外部适配器输入合同，不是前端调用入口。
+
+第 10 节列出的场景 3、4 接口为后续迭代 API 合同预览，当前版本后端不提供对应路由实现，前端不应在 v1.0 版本中对其发起实际调用。联调验收仅覆盖第 2-8 节描述的场景 1 和场景 2。
