@@ -4,10 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.kernel.context import KernelContext
 from app.kernel.models import User
-from app.plugins.assignment_grading.workflow import regrade_text_question
+from app.kernel.responses import SAFE_AGENT_ERROR_MESSAGE
 from app.plugins.layered_practice.models import PracticeAnswer, PracticeQuestion, PracticeTask
 from app.plugins.layered_practice.schemas import PracticeCreateRequest, PracticeSubmitRequest
-from app.plugins.layered_practice.workflow import generate_practice_questions
+from app.plugins.layered_practice.workflow import generate_practice_questions, grade_practice_answer
 from app.plugins.mastery_tracking.service import ensure_knowledge_point, update_mastery
 from app.plugins.wrong_question_book.service import get_recent_mistakes
 
@@ -28,6 +28,7 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
     try:
         payload = await generate_practice_questions(
             context,
+            str(user.id),
             request.subject,
             user.grade,
             request.knowledge_point,
@@ -43,6 +44,15 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
                     content=item.content,
                     standard_answer=item.standard_answer,
                     explanation=item.explanation,
+                    confidence=item.confidence,
+                    confidence_warning=(
+                        item.confidence_warning
+                        or (
+                            "题目与答案的验算置信度偏低，请结合解析自行判断"
+                            if item.confidence < context.settings.review_confidence_threshold
+                            else None
+                        )
+                    ),
                 )
             )
         task.status = "ready"
@@ -63,7 +73,7 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
         db.commit()
         db.refresh(task)
         return task
-    except Exception as error:
+    except Exception:
         task.status = "failed"
         context.capabilities.audit.record(
             db,
@@ -78,7 +88,7 @@ async def create_practice_task(context: KernelContext, db: Session, user: User, 
                 "knowledge_point": task.knowledge_point,
                 "difficulty": task.difficulty,
             },
-            error_message=str(error),
+            error_message=SAFE_AGENT_ERROR_MESSAGE,
         )
         db.commit()
         raise
@@ -102,8 +112,16 @@ async def submit_practice_answers(
     max_score = float(len(question_map) * 10)
     for input_answer in request.answers:
         question = question_map[input_answer.question_id]
-        result = await regrade_text_question(context, task.subject, question.content, input_answer.answer, question.standard_answer)
-        score = min(float(result["score"]), 10.0)
+        result = await grade_practice_answer(
+            context,
+            str(user.id),
+            task.subject,
+            {"content": question.content, "standard_answer": question.standard_answer},
+            input_answer.answer,
+        )
+        raw_score = float(result["score"])
+        raw_max_score = float(result["max_score"])
+        score = round(min(raw_score / raw_max_score * 10, 10.0), 2)
         total_score += score
         db.add(
             PracticeAnswer(
@@ -112,10 +130,15 @@ async def submit_practice_answers(
                 is_correct=bool(result["is_correct"]),
                 score=score,
                 explanation=str(result["explanation"]),
+                confidence=float(result["confidence"]),
+                confidence_warning=(
+                    "判题置信度偏低，请结合题目与解析自行判断"
+                    if float(result["confidence"]) < context.settings.review_confidence_threshold
+                    else None
+                ),
             )
         )
-        if float(result["confidence"]) >= context.settings.review_confidence_threshold:
-            update_mastery(db, user.id, task.subject, task.knowledge_point, bool(result["is_correct"]))
+        update_mastery(db, user.id, task.subject, task.knowledge_point, bool(result["is_correct"]))
 
     task.student_score = round(total_score / max_score * 100, 1) if max_score else 0
     task.status = "completed"

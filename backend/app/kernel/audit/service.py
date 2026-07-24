@@ -64,6 +64,23 @@ class AuditLogger:
             query = query.where(AuditLog.event_type == event_type)
         return list(db.scalars(query).all())
 
+    def list_all(
+        self,
+        db: Session,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        event_type: str | None = None,
+        actor_username: str | None = None,
+    ) -> list[AuditLog]:
+        query = select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        if event_type:
+            query = query.where(AuditLog.event_type == event_type)
+        if actor_username:
+            query = query.where(AuditLog.actor_username == actor_username)
+        query = query.offset(max(offset, 0)).limit(min(max(limit, 1), 10_000))
+        return list(db.scalars(query).all())
+
 
 def serialize_audit_log(event: AuditLog) -> dict[str, Any]:
     return {

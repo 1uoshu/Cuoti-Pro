@@ -26,6 +26,16 @@ class User(TimestampMixin, Base):
     grade: Mapped[Optional[str]] = mapped_column(String(32))
     school: Mapped[Optional[str]] = mapped_column(String(128))
     main_subject: Mapped[Optional[str]] = mapped_column(String(32))
+    role: Mapped[str] = mapped_column(String(16), default="student", server_default="student", nullable=False)
+    admin_slot: Mapped[Optional[int]] = mapped_column(Integer, unique=True)
+
+
+class SystemSetting(TimestampMixin, Base):
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    is_secret: Mapped[bool] = mapped_column(default=False, nullable=False)
 
 
 class AuditLog(TimestampMixin, Base):

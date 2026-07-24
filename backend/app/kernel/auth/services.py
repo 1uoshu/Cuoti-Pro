@@ -9,4 +9,5 @@ def serialize_user(user: User) -> dict:
         "grade": user.grade,
         "school": user.school,
         "main_subject": user.main_subject,
+        "role": user.role,
     }

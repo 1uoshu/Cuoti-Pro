@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.kernel.agent import AgentRuntime
+from app.kernel.agent import AgentRuntime, PythonSandbox
 from app.kernel.audit import AuditLogger
 from app.kernel.config import Settings, get_settings
 from app.kernel.database import DatabaseSessions
@@ -10,6 +10,7 @@ from app.kernel.jobs import JobRunner
 from app.kernel.knowledge_graph import KnowledgeGraphService
 from app.kernel.llm import LLMGateway
 from app.kernel.rag import RAGService
+from app.kernel.redis import RedisStore, build_redis_client
 from app.kernel.storage import UploadStorage
 
 
@@ -20,9 +21,11 @@ class KernelCapabilities:
     jobs: JobRunner
     llm: LLMGateway
     agent_runtime: AgentRuntime
+    sandbox: PythonSandbox
     rag: RAGService
     knowledge_graph: KnowledgeGraphService
     storage: UploadStorage
+    redis: RedisStore
 
 
 @dataclass(frozen=True)
@@ -44,9 +47,19 @@ def build_kernel_context(settings: Settings | None = None) -> KernelContext:
             jobs=JobRunner(),
             llm=LLMGateway(resolved_settings),
             agent_runtime=AgentRuntime(),
+            sandbox=PythonSandbox(
+                timeout_seconds=resolved_settings.sandbox_timeout_seconds,
+                memory_limit_mb=resolved_settings.sandbox_memory_limit_mb,
+                max_code_chars=resolved_settings.sandbox_max_code_chars,
+                max_output_chars=resolved_settings.sandbox_max_output_chars,
+            ),
             rag=RAGService(),
             knowledge_graph=KnowledgeGraphService(),
             storage=UploadStorage(resolved_settings),
+            redis=build_redis_client(
+                resolved_settings.redis_url,
+                test_mode=resolved_settings.app_env.lower() == "test",
+            ),
         ),
     )
 

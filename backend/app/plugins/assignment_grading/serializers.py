@@ -16,6 +16,9 @@ def serialize_question(question: Question) -> dict:
         "explanation": question.explanation,
         "confidence": question.confidence,
         "needs_review": question.needs_review,
+        "confidence_warning": (
+            "置信度偏低，请结合题目、答案与解析自行判断" if question.needs_review else None
+        ),
     }
 
 

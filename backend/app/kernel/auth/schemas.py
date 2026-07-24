@@ -1,4 +1,10 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class PowChallengeRequest(BaseModel):
+    purpose: Literal["login", "register"]
 
 
 class RegisterRequest(BaseModel):
@@ -7,11 +13,15 @@ class RegisterRequest(BaseModel):
     nickname: str = Field(min_length=1, max_length=64)
     grade: str | None = Field(default=None, max_length=32)
     main_subject: str | None = Field(default=None, max_length=32)
+    pow_challenge_id: str = Field(min_length=1, max_length=64)
+    pow_nonce: str = Field(min_length=1, max_length=128)
 
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+    pow_challenge_id: str = Field(min_length=1, max_length=64)
+    pow_nonce: str = Field(min_length=1, max_length=128)
 
 
 class UserUpdateRequest(BaseModel):
@@ -19,6 +29,13 @@ class UserUpdateRequest(BaseModel):
     grade: str | None = Field(default=None, max_length=32)
     school: str | None = Field(default=None, max_length=128)
     main_subject: str | None = Field(default=None, max_length=32)
+
+    @field_validator("nickname", mode="before")
+    @classmethod
+    def nickname_cannot_be_null(cls, value: object):
+        if value is None:
+            raise ValueError("nickname cannot be null")
+        return value
 
 
 class PasswordUpdateRequest(BaseModel):

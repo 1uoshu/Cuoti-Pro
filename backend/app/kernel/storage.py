@@ -5,6 +5,7 @@ import fitz
 from fastapi import HTTPException, UploadFile
 
 from app.kernel.config import Settings
+from app.kernel.responses import SAFE_UPLOAD_ERROR_MESSAGE
 
 
 class UploadStorage:
@@ -34,7 +35,7 @@ class UploadStorage:
             relative_path.parent.mkdir(parents=True, exist_ok=True)
             relative_path.write_bytes(content)
         except OSError as error:
-            raise HTTPException(status_code=500, detail="无法保存上传文件") from error
+            raise HTTPException(status_code=500, detail=SAFE_UPLOAD_ERROR_MESSAGE) from error
         return str(relative_path), suffix
 
     def _validate_pdf(self, content: bytes) -> None:

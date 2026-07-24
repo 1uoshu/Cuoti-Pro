@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.kernel.auth.dependencies import get_current_user
@@ -78,7 +78,33 @@ async def submit_practice(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权提交该练习")
     if task.status == "completed":
         raise HTTPException(status_code=409, detail="该练习已经提交")
-    task = await submit_practice_answers(get_kernel_context(), db, user, task, payload)
+    if task.status == "submitting":
+        raise HTTPException(status_code=409, detail="该练习正在提交")
+    if task.status != "ready":
+        raise HTTPException(status_code=409, detail="该练习当前不可提交")
+
+    claim = db.execute(
+        update(PracticeTask)
+        .where(PracticeTask.id == practice_id, PracticeTask.user_id == user.id, PracticeTask.status == "ready")
+        .values(status="submitting")
+    )
+    if claim.rowcount != 1:
+        db.rollback()
+        current_task = db.get(PracticeTask, practice_id)
+        if current_task is not None and current_task.status == "completed":
+            raise HTTPException(status_code=409, detail="该练习已经提交")
+        raise HTTPException(status_code=409, detail="该练习正在提交")
+    task.status = "submitting"
+    db.commit()
+    try:
+        task = await submit_practice_answers(get_kernel_context(), db, user, task, payload)
+    except Exception:
+        db.rollback()
+        current_task = db.get(PracticeTask, task.id)
+        if current_task is not None and current_task.status == "submitting":
+            current_task.status = "ready"
+            db.commit()
+        raise
     db.refresh(task)
     task = db.scalar(
         select(PracticeTask)
