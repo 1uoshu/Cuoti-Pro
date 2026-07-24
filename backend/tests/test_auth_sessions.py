@@ -165,3 +165,20 @@ def solve_pow(challenge: dict[str, object]) -> str:
 
 def auth_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_auth_me_exposes_created_at_and_last_login_at_after_login():
+    with TestClient(app) as client:
+        username = f"profile_{uuid.uuid4().hex[:12]}"
+        register(client, username)
+
+        first_token = login(client, username)
+        first_profile = client.get("/api/auth/me", headers=auth_header(first_token)).json()["data"]
+        assert first_profile["created_at"] is not None
+        assert first_profile["last_login_at"] is not None
+
+        second_token = login(client, username)
+        second_profile = client.get("/api/auth/me", headers=auth_header(second_token)).json()["data"]
+        assert second_profile["last_login_at"] is not None
+        assert second_profile["last_login_at"] >= first_profile["last_login_at"]
+        assert second_profile["created_at"] == first_profile["created_at"]

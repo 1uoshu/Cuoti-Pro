@@ -15,7 +15,9 @@ def test_app_loads_configured_plugins():
         "wrong_question_book",
         "assignment_grading",
         "layered_practice",
+        "stage_assessment",
         "learning_dashboard",
+        "learning_insights",
     ]
 
 

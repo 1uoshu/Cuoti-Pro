@@ -1,0 +1,1 @@
+"""Stage assessment plugin."""

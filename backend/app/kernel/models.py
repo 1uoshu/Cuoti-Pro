@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
@@ -28,6 +28,7 @@ class User(TimestampMixin, Base):
     main_subject: Mapped[Optional[str]] = mapped_column(String(32))
     role: Mapped[str] = mapped_column(String(16), default="student", server_default="student", nullable=False)
     admin_slot: Mapped[Optional[int]] = mapped_column(Integer, unique=True)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
 class SystemSetting(TimestampMixin, Base):

@@ -1,3 +1,4 @@
+﻿from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -156,6 +157,9 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         request=request,
         commit=True,
     )
+    user.last_login_at = datetime.now()
+    db.commit()
+    db.refresh(user)
     return ok(_issue_auth_response(user))
 
 

@@ -39,6 +39,7 @@ def update_mastery(
             mastery_score=0,
         )
         db.add(record)
+        db.flush()
     if is_correct:
         record.correct_count = max(0, record.correct_count + delta)
     else:

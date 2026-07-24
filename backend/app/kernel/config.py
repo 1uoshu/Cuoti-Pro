@@ -38,7 +38,9 @@ class Settings(BaseSettings):
         "app.plugins.wrong_question_book,"
         "app.plugins.assignment_grading,"
         "app.plugins.layered_practice,"
-        "app.plugins.learning_dashboard"
+        "app.plugins.stage_assessment,"
+        "app.plugins.learning_dashboard,"
+        "app.plugins.learning_insights"
     )
 
     @property

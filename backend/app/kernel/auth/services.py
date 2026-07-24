@@ -1,4 +1,4 @@
-from app.kernel.models import User
+﻿from app.kernel.models import User
 
 
 def serialize_user(user: User) -> dict:
@@ -10,4 +10,6 @@ def serialize_user(user: User) -> dict:
         "school": user.school,
         "main_subject": user.main_subject,
         "role": user.role,
+        "created_at": user.created_at,
+        "last_login_at": user.last_login_at,
     }

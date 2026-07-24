@@ -1,4 +1,4 @@
-from app.plugins.assignment_grading.models import Assignment, ProcessingTask, Question
+﻿from app.plugins.assignment_grading.models import Assignment, ProcessingTask, Question
 
 
 def serialize_question(question: Question) -> dict:
@@ -19,6 +19,7 @@ def serialize_question(question: Question) -> dict:
         "confidence_warning": (
             "置信度偏低，请结合题目、答案与解析自行判断" if question.needs_review else None
         ),
+        "created_at": question.created_at,
     }
 
 
