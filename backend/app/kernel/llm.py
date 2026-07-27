@@ -1,5 +1,7 @@
 import asyncio
 import json
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -9,6 +11,18 @@ from app.kernel.config import Settings
 
 class LLMAPIError(RuntimeError):
     """A bounded, credential-safe model provider error."""
+
+
+@dataclass
+class StreamEvent:
+    """SSE event yielded by LLMGateway.stream_chat()."""
+
+    type: str  # "text_delta" | "tool_call" | "done" | "error"
+    delta: str = ""
+    tool_name: str = ""
+    tool_args: dict = field(default_factory=dict)
+    tool_call_id: str = ""
+    error: str = ""
 
 
 class LLMGateway:
@@ -32,7 +46,18 @@ class LLMGateway:
         return self._settings.openai_model
 
     @property
+    def fast_model(self) -> str:
+        """轻量模型（意图分流/决策用），未配置时回退到主模型"""
+        return self._settings.effective_fast_model
+
+    @property
+    def chat_completions_url(self) -> str:
+        base_url = self._settings.openai_base_url or "https://api.openai.com/v1"
+        return f"{base_url.rstrip('/')}/chat/completions"
+
+    @property
     def responses_url(self) -> str:
+        """保留向后兼容（旧方法如 chat_json 仍用 Responses API）"""
         base_url = self._settings.openai_base_url or "https://api.openai.com/v1"
         return f"{base_url.rstrip('/')}/responses"
 
@@ -65,6 +90,146 @@ class LLMGateway:
         async with self._client() as client:
             response = await self._post_response(client, request)
         return self.extract_json(self._output_text(response))
+
+    async def stream_chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+        model: str | None = None,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream a chat response via Chat Completions API with function calling.
+
+        DeepSeek and most providers use /chat/completions, not /responses.
+        SSE format: data: {"choices":[{"delta":{...}}]}
+
+        Args:
+            messages: Chat Completions format message list (role: system/user/assistant/tool).
+            tools: Responses-API-style tool defs; auto-converted to Chat Completions format.
+            temperature: Sampling temperature.
+            max_tokens: Maximum output tokens.
+            model: Override model (default: self.model).
+
+        Yields:
+            StreamEvent instances: text_delta, tool_call, done, or error.
+        """
+        # Convert tool schemas to Chat Completions format
+        # Note: DeepSeek only allows [a-zA-Z0-9_-] in function names, so :: -> __
+        cc_tools = None
+        _name_map: dict[str, str] = {}  # api_name -> original_name
+        if tools:
+            cc_tools = []
+            for t in tools:
+                api_name = t["name"].replace("::", "__")
+                _name_map[api_name] = t["name"]
+                cc_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": api_name,
+                        "description": t["description"],
+                        "parameters": t["parameters"],
+                    },
+                })
+
+        request: dict[str, Any] = {
+            "messages": messages,
+            "model": model or self.model,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "temperature": temperature,
+        }
+        if cc_tools:
+            request["tools"] = cc_tools
+            request["parallel_tool_calls"] = False
+
+        # Accumulate streaming tool_call deltas (Chat Completions sends args incrementally)
+        _pending: dict[int, dict] = {}
+
+        try:
+            async with self._client() as client:
+                async with client.stream("POST", self.chat_completions_url, json=request) as response:
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        try:
+                            payload = json.loads(body)
+                        except ValueError:
+                            payload = None
+                        message = self._error_message(payload)
+                        yield StreamEvent(type="error", error=f"HTTP {response.status_code}: {message}")
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        raw = line[6:].strip()
+                        if raw == "[DONE]":
+                            for tc in _pending.values():
+                                if tc.get("name"):
+                                    try:
+                                        args = json.loads(tc.get("arguments", "{}"))
+                                    except json.JSONDecodeError:
+                                        args = {}
+                                    original_name = _name_map.get(tc["name"], tc["name"])
+                                    yield StreamEvent(type="tool_call", tool_name=original_name,
+                                                     tool_args=args if isinstance(args, dict) else {},
+                                                     tool_call_id=tc.get("id", ""))
+                            _pending.clear()
+                            yield StreamEvent(type="done")
+                            return
+                        if not raw:
+                            continue
+                        try:
+                            data = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = data.get("choices", [])
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
+
+                        # Text content (skip reasoning_content from DeepSeek)
+                        content = delta.get("content")
+                        if content:
+                            yield StreamEvent(type="text_delta", delta=content)
+
+                        # Tool call deltas (incremental)
+                        for tc_delta in delta.get("tool_calls", []):
+                            idx = tc_delta.get("index", 0)
+                            if idx not in _pending:
+                                _pending[idx] = {"id": "", "name": "", "arguments": ""}
+                            tc = _pending[idx]
+                            if tc_delta.get("id"):
+                                tc["id"] = tc_delta["id"]
+                            func = tc_delta.get("function", {})
+                            if func.get("name"):
+                                tc["name"] = func["name"]
+                            if func.get("arguments"):
+                                tc["arguments"] += func["arguments"]
+
+                        # Finish reason
+                        finish = choices[0].get("finish_reason")
+                        if finish in ("stop", "tool_calls", "length"):
+                            for tc in _pending.values():
+                                if tc.get("name"):
+                                    try:
+                                        args = json.loads(tc.get("arguments", "{}"))
+                                    except json.JSONDecodeError:
+                                        args = {}
+                                    original_name = _name_map.get(tc["name"], tc["name"])
+                                    yield StreamEvent(type="tool_call", tool_name=original_name,
+                                                     tool_args=args if isinstance(args, dict) else {},
+                                                     tool_call_id=tc.get("id", ""))
+                            _pending.clear()
+                            yield StreamEvent(type="done")
+                            return
+
+        except httpx.TimeoutException:
+            yield StreamEvent(type="error", error="连接超时")
+        except httpx.HTTPError as exc:
+            yield StreamEvent(type="error", error=f"传输失败: {type(exc).__name__}")
 
     async def chat_json_with_python(
         self,

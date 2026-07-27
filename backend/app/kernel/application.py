@@ -10,9 +10,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.kernel import models as kernel_models  # noqa: F401 - registers kernel ORM models
-from app.kernel.audit.routes import router as audit_router
 from app.kernel.admin.routes import router as admin_router
 from app.kernel.admin.service import load_runtime_settings
+from app.kernel.agent.routes import router as agent_router
+from app.kernel.agent.ws import ws_router
+from app.kernel.audit.routes import router as audit_router
 from app.kernel.auth.routes import router as auth_router
 from app.kernel.config import get_settings
 from app.kernel.context import build_kernel_context, set_kernel_context
@@ -38,6 +40,9 @@ def create_app() -> FastAPI:
             Base.metadata.create_all(bind=engine)
         with SessionLocal() as db:
             load_runtime_settings(db, settings)
+        # 注册插件工具到 ToolRegistry
+        for tool in plugin_manager.collect_tools():
+            context.capabilities.tool_registry.register(tool)
         yield
 
     app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
@@ -65,6 +70,8 @@ def _build_api_router(plugin_manager: PluginManager) -> APIRouter:
     api_router.include_router(auth_router)
     api_router.include_router(admin_router)
     api_router.include_router(audit_router)
+    api_router.include_router(agent_router)
+    api_router.include_router(ws_router)
 
     @api_router.get("/plugins", tags=["kernel"])
     def list_plugins():

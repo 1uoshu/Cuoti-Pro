@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str | None = None
     openai_model: str = ""
+    openai_fast_model: str = ""  # 轻量模型（意图分流/决策用）
     openai_reasoning_effort: str = "xhigh"
     openai_disable_response_storage: bool = True
     openai_timeout_seconds: float = 120
@@ -81,6 +82,11 @@ class Settings(BaseSettings):
             parsed = urlparse(self.openai_base_url)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 raise RuntimeError("OPENAI_BASE_URL 必须是有效的 HTTP(S) 地址")
+
+    @property
+    def effective_fast_model(self) -> str:
+        """快速模型（意图分流/决策），未配置时回退到主模型"""
+        return self.openai_fast_model or self.openai_model
 
 
 @lru_cache

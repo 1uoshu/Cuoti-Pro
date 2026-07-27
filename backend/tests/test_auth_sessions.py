@@ -8,10 +8,18 @@ from fastapi.testclient import TestClient
 from app.kernel.auth.security import decode_access_token
 from app.kernel.auth.sessions import revoke_token
 from app.kernel.context import get_kernel_context
+from app.kernel.database import SessionLocal
+from app.kernel.models import User, AuditLog
 from app.main import app
 
 
 def test_first_registered_user_is_admin_and_later_users_are_students():
+    # 清空用户表确保测试隔离（其他测试可能先注册了用户）
+    with SessionLocal() as db:
+        db.query(AuditLog).delete()
+        db.query(User).delete()
+        db.commit()
+
     with TestClient(app) as client:
         admin_token = register(client, f"admin_{uuid.uuid4().hex[:12]}")
         student_token = register(client, f"student_{uuid.uuid4().hex[:12]}")

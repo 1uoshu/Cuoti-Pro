@@ -26,6 +26,12 @@ class RedisStore(Protocol):
 
     def expire(self, key: str, seconds: int) -> bool: ...
 
+    def rpush(self, key: str, *values: str) -> int: ...
+
+    def lrange(self, key: str, start: int, end: int) -> list[str]: ...
+
+    def lindex(self, key: str, index: int) -> str | None: ...
+
 
 class RedisClient:
     def __init__(self, url: str) -> None:
@@ -55,6 +61,15 @@ class RedisClient:
     def expire(self, key: str, seconds: int) -> bool:
         return bool(self._client.expire(key, seconds))
 
+    def rpush(self, key: str, *values: str) -> int:
+        return int(self._client.rpush(key, *values)) if values else 0
+
+    def lrange(self, key: str, start: int, end: int) -> list[str]:
+        return self._client.lrange(key, start, end)
+
+    def lindex(self, key: str, index: int) -> str | None:
+        return self._client.lindex(key, index)
+
 
 class InMemoryRedisClient:
     """Test-only Redis-compatible store used when APP_ENV=test and REDIS_URL=memory://."""
@@ -62,6 +77,7 @@ class InMemoryRedisClient:
     def __init__(self) -> None:
         self._values: dict[str, str] = {}
         self._sets: defaultdict[str, set[str]] = defaultdict(set)
+        self._lists: defaultdict[str, list[str]] = defaultdict(list)
         self._expires_at: dict[str, datetime] = {}
         self._lock = Lock()
 
@@ -83,10 +99,11 @@ class InMemoryRedisClient:
             deleted = 0
             for key in keys:
                 self._purge(key)
-                if key in self._values or key in self._sets:
+                if key in self._values or key in self._sets or key in self._lists:
                     deleted += 1
                 self._values.pop(key, None)
                 self._sets.pop(key, None)
+                self._lists.pop(key, None)
                 self._expires_at.pop(key, None)
             return deleted
 
@@ -113,10 +130,37 @@ class InMemoryRedisClient:
     def expire(self, key: str, seconds: int) -> bool:
         with self._lock:
             self._purge(key)
-            if key not in self._values and key not in self._sets:
+            if (
+                key not in self._values
+                and key not in self._sets
+                and key not in self._lists
+            ):
                 return False
             self._set_expiry(key, seconds)
             return True
+
+    def rpush(self, key: str, *values: str) -> int:
+        with self._lock:
+            self._purge(key)
+            self._lists[key].extend(values)
+            return len(self._lists[key])
+
+    def lrange(self, key: str, start: int, end: int) -> list[str]:
+        with self._lock:
+            self._purge(key)
+            lst = self._lists.get(key, [])
+            if end == -1:
+                end = len(lst)
+            return lst[start:end]
+
+    def lindex(self, key: str, index: int) -> str | None:
+        with self._lock:
+            self._purge(key)
+            lst = self._lists.get(key, [])
+            try:
+                return lst[index]
+            except IndexError:
+                return None
 
     def _set_expiry(self, key: str, seconds: int | None) -> None:
         if seconds is None:
@@ -129,6 +173,7 @@ class InMemoryRedisClient:
         if expires_at and expires_at <= datetime.now(UTC):
             self._values.pop(key, None)
             self._sets.pop(key, None)
+            self._lists.pop(key, None)
             self._expires_at.pop(key, None)
 
 

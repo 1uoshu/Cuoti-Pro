@@ -16,6 +16,10 @@ from app.plugins.mastery_tracking.service import ensure_knowledge_point, update_
 from app.plugins.wrong_question_book.service import remove_wrong_question, upsert_wrong_question
 
 
+class NoQuestionsDetected(Exception):
+    pass
+
+
 async def create_assignment(
     context: KernelContext,
     db: Session,
@@ -29,6 +33,14 @@ async def create_assignment(
         raise HTTPException(status_code=400, detail="请填写学科")
     if len(subject) > 32:
         raise HTTPException(status_code=400, detail="学科名称不能超过 32 个字符")
+    # 文件大小检查（提前拦截，给出人话提示）
+    content = await file.read()
+    if len(content) > context.settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail=f"文件太大，最大支持 {context.settings.max_upload_mb}MB",
+        )
+    await file.seek(0)  # 重置文件指针，供后续存储使用
     file_path, suffix = await context.capabilities.storage.save_upload(file, user.id, "uploads")
     assignment = Assignment(
         user_id=user.id,
@@ -77,6 +89,9 @@ def process_assignment_task(task_id: str) -> None:
                 )
             )
 
+            if not payload.questions:
+                raise NoQuestionsDetected("未能从作业中识别到题目，请上传更清晰的图片或包含实际题目的内容")
+
             _set_task_state(task, assignment, "保存批改结果", 85)
             db.commit()
             persist_grade_payload(context, db, assignment, payload)
@@ -95,13 +110,16 @@ def process_assignment_task(task_id: str) -> None:
                 metadata={"task_id": task.id, "question_count": len(payload.questions), "subject": assignment.subject},
             )
             db.commit()
-        except Exception:
+        except Exception as task_error:
             db.rollback()
             task = db.get(ProcessingTask, task_id)
             if task is not None:
                 task.status = "failed"
                 task.step = "failed"
-                task.error_message = SAFE_AGENT_ERROR_MESSAGE
+                if isinstance(task_error, NoQuestionsDetected):
+                    task.error_message = str(task_error)
+                else:
+                    task.error_message = SAFE_AGENT_ERROR_MESSAGE
                 assignment = db.get(Assignment, task.assignment_id)
                 if assignment is not None:
                     assignment.status = "failed"
