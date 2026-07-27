@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.kernel import models as kernel_models  # noqa: F401 - registers kernel ORM models
+from app.kernel.agent.ws import router as ws_router
 from app.kernel.audit.routes import router as audit_router
 from app.kernel.admin.routes import router as admin_router
 from app.kernel.admin.service import load_runtime_settings
@@ -20,6 +21,7 @@ from app.kernel.database import Base, engine
 from app.kernel.database import SessionLocal
 from app.kernel.plugins import PluginManager, load_plugins
 from app.kernel.redis import ensure_redis_available
+from app.kernel.middleware import RateLimitMiddleware
 from app.kernel.responses import GENERIC_SERVER_ERROR_MESSAGE, error, ok
 
 
@@ -50,6 +52,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(
+        RateLimitMiddleware,
+        redis=context.capabilities.redis,
+        per_ip_limit=settings.rate_limit_per_ip,
+        per_user_limit=settings.rate_limit_per_user,
+        upload_limit=settings.rate_limit_upload,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
     app.include_router(_build_api_router(plugin_manager))
     _register_error_handlers(app)
 
@@ -65,6 +75,7 @@ def _build_api_router(plugin_manager: PluginManager) -> APIRouter:
     api_router.include_router(auth_router)
     api_router.include_router(admin_router)
     api_router.include_router(audit_router)
+    api_router.include_router(ws_router)
 
     @api_router.get("/plugins", tags=["kernel"])
     def list_plugins():

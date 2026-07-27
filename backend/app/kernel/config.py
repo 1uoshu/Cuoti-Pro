@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     openai_reasoning_effort: str = "xhigh"
     openai_disable_response_storage: bool = True
     openai_timeout_seconds: float = 120
+    vision_api_key: str = ""
+    vision_base_url: str = ""
+    vision_model: str = ""
     max_upload_mb: int = 10
     max_pdf_pages: int = 10
     cors_origins: str = "http://localhost:5173"
@@ -32,11 +35,16 @@ class Settings(BaseSettings):
     sandbox_max_code_chars: int = 8_000
     sandbox_max_output_chars: int = 8_000
     auto_create_tables: bool = True
+    rate_limit_per_ip: int = 120
+    rate_limit_per_user: int = 60
+    rate_limit_upload: int = 10
+    rate_limit_window_seconds: int = 60
     plugin_modules: str = (
         "app.plugins.example,"
         "app.plugins.mastery_tracking,"
         "app.plugins.wrong_question_book,"
         "app.plugins.assignment_grading,"
+        "app.plugins.agent_chat,"
         "app.plugins.layered_practice,"
         "app.plugins.stage_assessment,"
         "app.plugins.learning_dashboard,"

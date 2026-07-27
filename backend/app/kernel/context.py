@@ -39,14 +39,14 @@ _context: KernelContext | None = None
 
 def build_kernel_context(settings: Settings | None = None) -> KernelContext:
     resolved_settings = settings or get_settings()
-    return KernelContext(
+    context = KernelContext(
         settings=resolved_settings,
         capabilities=KernelCapabilities(
             audit=AuditLogger(),
             database=DatabaseSessions(),
             jobs=JobRunner(),
             llm=LLMGateway(resolved_settings),
-            agent_runtime=AgentRuntime(),
+            agent_runtime=AgentRuntime(context=None),  # placeholder, set below
             sandbox=PythonSandbox(
                 timeout_seconds=resolved_settings.sandbox_timeout_seconds,
                 memory_limit_mb=resolved_settings.sandbox_memory_limit_mb,
@@ -62,6 +62,13 @@ def build_kernel_context(settings: Settings | None = None) -> KernelContext:
             ),
         ),
     )
+    # Rebuild agent_runtime with actual context reference
+    object.__setattr__(
+        context.capabilities,
+        "agent_runtime",
+        AgentRuntime(context),
+    )
+    return context
 
 
 def set_kernel_context(context: KernelContext) -> None:
