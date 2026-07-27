@@ -1,17 +1,18 @@
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.kernel.auth.dependencies import get_current_user
+from app.kernel.context import get_kernel_context
 from app.kernel.database import get_db
 from app.kernel.models import User
 from app.kernel.responses import ok
 from app.plugins.wrong_question_book.service import (
+    confirm_review,
     get_wrong_question_detail,
     list_wrong_questions,
-    save_question_feedback,
     update_wrong_question_status,
 )
+
 
 router = APIRouter(tags=["wrong-question-book"])
 
@@ -23,90 +24,66 @@ def wrong_questions(subject: str | None = None, user: User = Depends(get_current
     return ok(list_wrong_questions(db, user.id, subject))
 
 
-# ── 详情 ──────────────────────────────────────────
-
-@router.get("/wrong-questions/{wrong_question_id}")
+@router.get("/wrong-questions/{question_id}")
 def wrong_question_detail(
-    wrong_question_id: int,
+    question_id: int,
     request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    result = get_wrong_question_detail(db, wrong_question_id, user.id)
-    # 审计
-    context = request.app.state.kernel_context
+    """错题详情（查看进审计）"""
+    detail = get_wrong_question_detail(db, question_id, user.id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="错题不存在")
+    context = get_kernel_context()
     context.capabilities.audit.record(
-        db,
-        event_type="wrong_question.viewed",
-        actor_user_id=user.id,
-        resource_type="wrong_question",
-        resource_id=wrong_question_id,
-        summary="Student viewed wrong question detail",
+        db, event_type="wrong_question.viewed", actor=user,
+        resource_type="wrong_question", resource_id=question_id,
+        summary="学生查看错题详情", request=request, commit=True,
     )
-    db.commit()
+    return ok(detail)
+
+
+@router.patch("/wrong-questions/{question_id}/status")
+def update_wrong_question_status_route(
+    question_id: int,
+    status: str = Form(...),
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """更新错题状态"""
+    try:
+        result = update_wrong_question_status(db, question_id, user.id, status)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="错题不存在")
+    context = get_kernel_context()
+    context.capabilities.audit.record(
+        db, event_type="wrong_question.status_changed", actor=user,
+        resource_type="wrong_question", resource_id=question_id,
+        summary=f"错题状态变更为 {status}", metadata={"new_status": status},
+        request=request, commit=True,
+    )
     return ok(result)
 
 
-# ── 状态流转 ──────────────────────────────────────
-
-class StatusPatch(BaseModel):
-    status: str = Field(..., pattern=r"^(active|reviewed|archived)$")
-
-
-@router.patch("/wrong-questions/{wrong_question_id}/status")
-def wrong_question_status(
-    wrong_question_id: int,
-    body: StatusPatch,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    item = update_wrong_question_status(db, wrong_question_id, user.id, body.status)
-    # 审计
-    context = request.app.state.kernel_context
-    context.capabilities.audit.record(
-        db,
-        event_type="wrong_question.status_changed",
-        actor_user_id=user.id,
-        resource_type="wrong_question",
-        resource_id=wrong_question_id,
-        summary=f"Wrong question status changed to {body.status}",
-        metadata={"new_status": body.status},
-    )
-    db.commit()
-    return ok({
-        "id": item.id,
-        "status": item.status,
-        "wrong_count": item.wrong_count,
-    })
-
-
-# ── 好差评 ────────────────────────────────────────
-
-class FeedbackRequest(BaseModel):
-    rating: str = Field(..., pattern=r"^(good|bad)$")
-    comment: str | None = Field(None, max_length=500)
-
-
-@router.post("/questions/{question_id}/feedback")
-def question_feedback(
+@router.post("/questions/{question_id}/confirm-review")
+def confirm_review_route(
     question_id: int,
-    body: FeedbackRequest,
     request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    save_question_feedback(db, user.id, question_id, body.rating, body.comment)
-    # 审计
-    context = request.app.state.kernel_context
+    """待复核确认：学生确认后归档到错题本"""
+    result = confirm_review(db, question_id, user.id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="题目不存在或无权限")
+    context = get_kernel_context()
     context.capabilities.audit.record(
-        db,
-        event_type="question.feedback",
-        actor_user_id=user.id,
-        resource_type="question",
-        resource_id=question_id,
-        summary=f"Student gave {body.rating} feedback",
-        metadata={"rating": body.rating},
+        db, event_type="wrong_question.review_confirmed", actor=user,
+        resource_type="question", resource_id=question_id,
+        summary="学生确认待复核题目", request=request, commit=True,
     )
-    db.commit()
-    return ok({"recorded": True})
+    return ok(result)

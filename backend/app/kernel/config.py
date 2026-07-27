@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str | None = None
     openai_model: str = ""
+    openai_fast_model: str = ""  # 轻量模型（意图分流/决策用）
+    # 视觉模型（独立配置，用于批改等多模态任务）
+    vision_api_key: str = ""
+    vision_base_url: str = "https://api.siliconflow.cn/v1"
+    vision_model: str = "Qwen/Qwen3-VL-32B-Instruct"
     openai_reasoning_effort: str = "xhigh"
     openai_disable_response_storage: bool = True
     openai_timeout_seconds: float = 120
@@ -27,7 +32,7 @@ class Settings(BaseSettings):
     vision_model: str = ""
     max_upload_mb: int = 10
     max_pdf_pages: int = 10
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5173,http://localhost:5174"
     storage_dir: str = "storage"
     review_confidence_threshold: float = 0.85
     sandbox_timeout_seconds: float = 2
@@ -89,6 +94,11 @@ class Settings(BaseSettings):
             parsed = urlparse(self.openai_base_url)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 raise RuntimeError("OPENAI_BASE_URL 必须是有效的 HTTP(S) 地址")
+
+    @property
+    def effective_fast_model(self) -> str:
+        """快速模型（意图分流/决策），未配置时回退到主模型"""
+        return self.openai_fast_model or self.openai_model
 
 
 @lru_cache

@@ -176,3 +176,78 @@ def get_recent_mistakes(db: Session, user_id: int, subject: str, knowledge_point
         .limit(5)
     ).all()
     return [question.content for question in questions]
+
+
+def get_wrong_question_detail(db: Session, question_id: int, user_id: int) -> dict | None:
+    """获取错题详情（带权限检查）。
+    返回包含原题快照+学生答案+标答+错因的完整字典。
+    如果 question 不属于该 user_id，返回 None（调用方处理 404）。
+    """
+    wq = db.scalar(
+        select(WrongQuestion)
+        .options(selectinload(WrongQuestion.question).selectinload(Question.assignment))
+        .where(WrongQuestion.question_id == question_id)
+    )
+    if wq is None or wq.user_id != user_id:
+        return None
+    q = wq.question
+    return {
+        "wrong_question_id": wq.id,
+        "subject": wq.subject,
+        "knowledge_point": wq.knowledge_point,
+        "wrong_reason": wq.wrong_reason,
+        "wrong_count": wq.wrong_count,
+        "status": wq.status,
+        "created_at": wq.created_at.isoformat() if wq.created_at else None,
+        "question": serialize_question(q),
+    }
+
+
+def update_wrong_question_status(db: Session, question_id: int, user_id: int, new_status: str) -> dict | None:
+    """更新错题状态。允许的状态：unreviewed, reviewing, mastered, archived。
+    带权限检查。返回更新后的字典，不存在返回 None。
+    """
+    allowed = {"unreviewed", "reviewing", "mastered", "archived"}
+    if new_status not in allowed:
+        raise ValueError(f"无效状态：{new_status}，允许：{', '.join(sorted(allowed))}")
+    wq = db.scalar(
+        select(WrongQuestion)
+        .where(WrongQuestion.question_id == question_id, WrongQuestion.user_id == user_id)
+    )
+    if wq is None:
+        return None
+    wq.status = new_status
+    db.commit()
+    db.refresh(wq)
+    return {"id": wq.id, "status": wq.status, "question_id": question_id}
+
+
+def confirm_review(db: Session, question_id: int, user_id: int) -> dict | None:
+    """待复核确认：学生确认后，将 needs_review=False 的题归档到错题本。
+    如果该题已归档，返回已归档记录。
+    如果该题 confidence 不足，仍归档但标记 status="reviewing"。
+    """
+    question = db.get(Question, question_id)
+    if question is None:
+        return None
+    # 检查该题是否属于该学生的作业
+    assignment = question.assignment
+    if assignment is None or assignment.user_id != user_id:
+        return None
+    # 归档到错题本
+    wq = db.scalar(select(WrongQuestion).where(WrongQuestion.question_id == question_id))
+    if wq is not None:
+        return {"id": wq.id, "status": wq.status, "already_archived": True}
+    wq = WrongQuestion(
+        user_id=user_id,
+        question_id=question_id,
+        subject=assignment.subject,
+        knowledge_point=question.knowledge_point,
+        wrong_reason=question.explanation,
+        status="reviewing" if question.needs_review else "unreviewed",
+    )
+    db.add(wq)
+    question.needs_review = False  # 确认后不再标记待复核
+    db.commit()
+    db.refresh(wq)
+    return {"id": wq.id, "status": wq.status, "already_archived": False}

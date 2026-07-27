@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.kernel.agent import AgentRuntime, PythonSandbox
+from app.kernel.agent import AgentRuntime, PythonSandbox, ToolRegistry
+from app.kernel.agent.events import EventBus
 from app.kernel.audit import AuditLogger
 from app.kernel.config import Settings, get_settings
 from app.kernel.database import DatabaseSessions
@@ -26,6 +27,7 @@ class KernelCapabilities:
     knowledge_graph: KnowledgeGraphService
     storage: UploadStorage
     redis: RedisStore
+    tool_registry: ToolRegistry
 
 
 @dataclass(frozen=True)
@@ -39,14 +41,34 @@ _context: KernelContext | None = None
 
 def build_kernel_context(settings: Settings | None = None) -> KernelContext:
     resolved_settings = settings or get_settings()
-    context = KernelContext(
+
+    # 1. 基础设施
+    redis = build_redis_client(
+        resolved_settings.redis_url,
+        test_mode=resolved_settings.app_env.lower() == "test",
+    )
+    llm = LLMGateway(resolved_settings)
+    tool_registry = ToolRegistry()
+
+    # 2. EventBus（依赖 redis）
+    event_bus = EventBus(redis)
+
+    # 3. AgentRuntime（延迟初始化：先创建实例，再 initialize）
+    agent_runtime = AgentRuntime()
+    agent_runtime.initialize(
+        llm=llm,
+        tool_registry=tool_registry,
+        event_bus=event_bus,
+    )
+
+    return KernelContext(
         settings=resolved_settings,
         capabilities=KernelCapabilities(
             audit=AuditLogger(),
             database=DatabaseSessions(),
             jobs=JobRunner(),
-            llm=LLMGateway(resolved_settings),
-            agent_runtime=AgentRuntime(context=None),  # placeholder, set below
+            llm=llm,
+            agent_runtime=agent_runtime,
             sandbox=PythonSandbox(
                 timeout_seconds=resolved_settings.sandbox_timeout_seconds,
                 memory_limit_mb=resolved_settings.sandbox_memory_limit_mb,
@@ -56,10 +78,8 @@ def build_kernel_context(settings: Settings | None = None) -> KernelContext:
             rag=RAGService(),
             knowledge_graph=KnowledgeGraphService(),
             storage=UploadStorage(resolved_settings),
-            redis=build_redis_client(
-                resolved_settings.redis_url,
-                test_mode=resolved_settings.app_env.lower() == "test",
-            ),
+            redis=redis,
+            tool_registry=tool_registry,
         ),
     )
     # Rebuild agent_runtime with actual context reference

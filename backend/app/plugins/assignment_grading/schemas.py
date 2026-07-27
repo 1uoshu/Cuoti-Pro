@@ -35,7 +35,7 @@ class ModelQuestion(BaseModel):
 
 class ModelGradePayload(BaseModel):
     subject: str
-    questions: list[ModelQuestion] = Field(min_length=1)
+    questions: list[ModelQuestion] = Field(default_factory=list, min_length=0)
     total_score: float = Field(ge=0)
     student_score: float = Field(ge=0)
     overall_comment: str = Field(min_length=1)

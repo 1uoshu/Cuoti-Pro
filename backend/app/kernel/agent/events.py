@@ -1,148 +1,112 @@
-"""WebSocket event emitter — 13 event types for the Agent chat protocol."""
-
+"""Event bus for Agent runtime — Redis list-backed with replay support."""
 from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any
 
-from fastapi import WebSocket
+
+class EventType(str, Enum):
+    """12 类 WebSocket 事件，ADR 0013 定义。"""
+
+    SESSION_WELCOME = "session.welcome"
+    PLAN_START = "plan.start"
+    PLAN_STEP_STARTED = "plan.step.started"
+    PLAN_STEP_TOOL_CALL = "plan.step.tool_call"
+    PLAN_STEP_TOOL_RESULT = "plan.step.tool_result"
+    PLAN_STEP_ERROR = "plan.step.error"
+    PLAN_STEP_DONE = "plan.step.done"
+    PLAN_DONE = "plan.done"
+    PLAN_INTERRUPT_REQUEST = "plan.interrupt_request"
+    CHAT_TEXT_DELTA = "chat.text.delta"
+    MEMORY_RECORDED = "memory.recorded"
+    SESSION_END = "session.end"
 
 
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+@dataclass
+class AgentEvent:
+    """单个 Agent 事件。"""
+
+    type: EventType
+    session_id: str
+    step_id: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
+    event_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(UTC).isoformat(),
+    )
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "type": self.type.value,
+                "session_id": self.session_id,
+                "step_id": self.step_id,
+                "data": self.data,
+                "event_id": self.event_id,
+                "timestamp": self.timestamp,
+            },
+            ensure_ascii=False,
+        )
+
+    @classmethod
+    def from_json(cls, raw: str) -> AgentEvent:
+        d = json.loads(raw)
+        return cls(
+            type=EventType(d["type"]),
+            session_id=d["session_id"],
+            step_id=d.get("step_id"),
+            data=d.get("data", {}),
+            event_id=d.get("event_id", ""),
+            timestamp=d.get("timestamp", ""),
+        )
 
 
-def _step_id() -> str:
-    return f"step_{uuid.uuid4().hex[:16]}"
+class EventBus:
+    """Redis list-backed event bus with replay support.
 
+    使用 Redis list 存储事件，因为现有 RedisStore 不支持 XADD/XRANGE。
+    用 list 的 RPUSH/LRANGE 模拟事件日志。
+    """
 
-# ── 序列化 ────────────────────────────────────────
+    STREAM_PREFIX = "agent:events:"
+    STREAM_TTL_SECONDS = 86400  # 24 hours
 
-async def send_event(ws: WebSocket, event: str, data: dict[str, Any], *, step_id: str | None = None, session_id: str = "") -> str:
-    """Send a structured event to a WebSocket client. Returns the step_id used."""
-    sid = step_id or _step_id()
-    payload = {
-        "event": event,
-        "step_id": sid,
-        "timestamp": _now_iso(),
-        "session_id": session_id,
-        "data": data,
-    }
-    await ws.send_text(json.dumps(payload, ensure_ascii=False))
-    return sid
+    def __init__(self, redis: Any) -> None:  # redis: RedisStore
+        self._redis = redis
 
+    def _stream_key(self, session_id: str) -> str:
+        return f"{self.STREAM_PREFIX}{session_id}"
 
-# ── 13 类事件 ─────────────────────────────────────
+    def emit(self, event: AgentEvent) -> None:
+        """发射一个事件到 Redis。"""
+        key = self._stream_key(event.session_id)
+        self._redis.rpush(key, event.to_json())
+        self._redis.expire(key, self.STREAM_TTL_SECONDS)
 
-async def emit_session_welcome(ws: WebSocket, session_id: str, *, replay_from_step_id: str | None, session_title: str) -> None:
-    await ws.send_text(json.dumps({
-        "event": "session.welcome",
-        "timestamp": _now_iso(),
-        "session_id": session_id,
-        "data": {
-            "replay_from_step_id": replay_from_step_id,
-            "session_title": session_title,
-        },
-    }, ensure_ascii=False))
+    def replay(
+        self,
+        session_id: str,
+        since_event_id: str | None = None,
+    ) -> list[AgentEvent]:
+        """回放某个 session 的事件，可选从某个 event_id 之后开始。"""
+        key = self._stream_key(session_id)
+        raw_list = self._redis.lrange(key, 0, -1)
+        events = [AgentEvent.from_json(r) for r in raw_list]
+        if since_event_id is None:
+            return events
+        for i, ev in enumerate(events):
+            if ev.event_id == since_event_id:
+                return events[i + 1 :]
+        return events
 
-
-async def emit_plan_start(ws: WebSocket, session_id: str, plan_id: str, goal: str) -> str:
-    return await send_event(ws, "plan.start", {"plan_id": plan_id, "goal": goal}, session_id=session_id)
-
-
-async def emit_intent_recognized(
-    ws: WebSocket, session_id: str, *,
-    intent: str, confidence: float, description: str,
-    has_file: bool, tool_to_call: str | None,
-) -> str:
-    return await send_event(ws, "intent.recognized", {
-        "intent": intent,
-        "confidence": confidence,
-        "description": description,
-        "has_file": has_file,
-        "tool_to_call": tool_to_call,
-    }, session_id=session_id)
-
-
-async def emit_tool_call(
-    ws: WebSocket, session_id: str, *,
-    tool_address: str, proposal: str,
-    source: str = "agent", side_effect: str = "read",
-) -> str:
-    return await send_event(ws, "plan.step.tool_call", {
-        "tool_address": tool_address,
-        "proposal": proposal,
-        "source": source,
-        "side_effect": side_effect,
-    }, session_id=session_id)
-
-
-async def emit_step_started(ws: WebSocket, session_id: str, tool_address: str) -> str:
-    return await send_event(ws, "plan.step.started", {"tool_address": tool_address}, session_id=session_id)
-
-
-async def emit_tool_result(
-    ws: WebSocket, session_id: str, *,
-    tool_address: str, success: bool,
-    card_type: str | None = None, card_payload: dict | None = None,
-    summary: str = "",
-) -> str:
-    return await send_event(ws, "plan.step.tool_result", {
-        "tool_address": tool_address,
-        "success": success,
-        "card_type": card_type,
-        "card_payload": card_payload,
-        "summary": summary,
-    }, session_id=session_id)
-
-
-async def emit_step_error(
-    ws: WebSocket, session_id: str, *,
-    tool_address: str, error_message: str,
-    card_type: str | None = None, card_payload: dict | None = None,
-) -> str:
-    return await send_event(ws, "plan.step.error", {
-        "tool_address": tool_address,
-        "error_message": error_message,
-        "card_type": card_type,
-        "card_payload": card_payload,
-    }, session_id=session_id)
-
-
-async def emit_step_done(ws: WebSocket, session_id: str, tool_address: str) -> str:
-    return await send_event(ws, "plan.step.done", {"tool_address": tool_address}, session_id=session_id)
-
-
-async def emit_text_delta(ws: WebSocket, session_id: str, *, delta: str, accumulated: str) -> str:
-    return await send_event(ws, "chat.text.delta", {
-        "delta": delta,
-        "accumulated": accumulated,
-    }, session_id=session_id)
-
-
-async def emit_plan_done(ws: WebSocket, session_id: str, plan_id: str, *, success: bool, summary: str) -> str:
-    return await send_event(ws, "plan.done", {
-        "plan_id": plan_id,
-        "success": success,
-        "summary": summary,
-    }, session_id=session_id)
-
-
-async def emit_interrupt_request(ws: WebSocket, session_id: str, plan_id: str, reason: str = "student_requested") -> str:
-    return await send_event(ws, "plan.interrupt_request", {
-        "plan_id": plan_id,
-        "reason": reason,
-    }, session_id=session_id)
-
-
-async def emit_memory_recorded(ws: WebSocket, session_id: str, memory_type: str, summary: str) -> str:
-    return await send_event(ws, "memory.recorded", {
-        "memory_type": memory_type,
-        "summary": summary,
-    }, session_id=session_id)
-
-
-async def emit_session_end(ws: WebSocket, session_id: str, reason: str = "completed") -> str:
-    return await send_event(ws, "session.end", {"reason": reason}, session_id=session_id)
+    def get_latest_event_id(self, session_id: str) -> str | None:
+        """获取最近一个事件的 event_id，用于断线重连。"""
+        key = self._stream_key(session_id)
+        raw = self._redis.lindex(key, -1)
+        if raw:
+            return AgentEvent.from_json(raw).event_id
+        return None

@@ -1,180 +1,375 @@
-"""Agent runtime — LangGraph StateGraph for the learning Agent.
+"""Agent runtime -- ReAct loop with ToolExecutionTracker.
 
-Rewrites the previous 27-line linear workflow into a full intent-driven runtime.
+借鉴 rust_code_cli 的设计：
+- 意图快速分流（省 LLM 调用）
+- ToolExecutionTracker（去重 + 补偿）
+- TurnEnd 暂缓（工具执行后强制确认）
+
+ADR 0007: Plan-and-Execute with Interrupt
+ADR 0008: Main Agent with Sub-Agent Tool Delegation
 """
-
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from langgraph.graph import END, START, StateGraph
 
-from app.kernel.agent.context_assembler import build_context_messages, build_system_prompt, build_user_message
-from app.kernel.agent.intent_router import (
-    INTENT_ANSWER_VERIFICATION,
-    INTENT_GENERAL_CHAT,
-    INTENT_HOMEWORK_GRADING,
-    INTENT_KNOWLEDGE_QUESTION,
-    INTENT_PRACTICE_REQUEST,
-    INTENT_QUESTION_EXPLANATION,
-    INTENT_UNCLEAR,
-    run_intent_router,
-)
-from app.kernel.agent.state import AgentState
+from app.kernel.agent.events import AgentEvent, EventBus, EventType
 
-if TYPE_CHECKING:
-    from app.kernel.context import KernelContext
+MAX_TOOL_CALLS_PER_TURN = 5
+
+
+# ── 保留现有接口（插件依赖） ──────────────────────────────────────────
 
 
 @dataclass(frozen=True)
 class AgentStep:
+    """A named step inside a linear LangGraph workflow."""
+
     name: str
     handler: Callable[[Any], Any]
 
 
+# ── 新增：工具执行追踪器 ─────────────────────────────────
+
+
+class ToolExecutionTracker:
+    """工具执行追踪器 -- 去重 + 补偿。
+
+    借鉴 rust_code_cli 的 ToolExecutionTracker：
+    - 用签名（tool_name + args JSON）做去重键
+    - 记录已执行工具，注入下一轮 prompt
+    - 对比 LLM 输出与已执行记录，补偿遗漏
+    """
+
+    def __init__(self) -> None:
+        self._executed: dict[str, Any] = {}
+        self._records: list[dict[str, Any]] = []
+
+    def sig(self, tool_name: str, args: dict[str, Any]) -> str:
+        return f"{tool_name}:{json.dumps(args, sort_keys=True)}"
+
+    def already_executed(self, tool_name: str, args: dict[str, Any]) -> bool:
+        return self.sig(tool_name, args) in self._executed
+
+    def record(self, tool_name: str, args: dict[str, Any], result: Any, ok: bool) -> None:
+        s = self.sig(tool_name, args)
+        self._executed[s] = result
+        self._records.append({"tool": tool_name, "ok": ok, "sig": s})
+
+    def missed_calls(self, tool_calls_from_llm: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        missed = []
+        for tc in tool_calls_from_llm:
+            s = self.sig(tc["name"], tc.get("arguments", {}))
+            if s not in self._executed:
+                missed.append(tc)
+        return missed
+
+    def summary_for_prompt(self) -> str:
+        if not self._records:
+            return ""
+        lines = ["已执行的工具:"]
+        for r in self._records:
+            status = "成功" if r["ok"] else "失败"
+            lines.append(f"  - {r['tool']}: {status}")
+        return "\n".join(lines)
+
+
+# ── 新增：意图快速分流 ────────────────────────────────────
+
+
+def classify_intent(message: str) -> str:
+    """规则匹配分流，省一次 LLM 调用。
+
+    返回: "chitchat" | "tool_hint" | "ambiguous"
+    """
+    chitchat = ["你好", "谢谢", "嗯", "好的", "知道了", "hi", "hello", "thanks"]
+    if any(message.strip().startswith(p) for p in chitchat):
+        return "chitchat"
+    tool_hints = ["批改", "上传", "错题", "归档", "作业"]
+    if any(h in message for h in tool_hints):
+        return "tool_hint"
+    return "ambiguous"
+
+
+# ── 新增：Agent Runtime ──────────────────────────────────
+
+
 class AgentRuntime:
-    """Kernel-owned LangGraph helper used by plugins to build workflows."""
+    """Kernel-owned Agent runtime -- ReAct 循环。
 
-    def __init__(self, context: KernelContext):
-        self._context = context
+    借鉴 rust_code_cli 的 stream_kernel_turn 设计：
+    1. 意图快速分流
+    2. ReAct 循环（最多 5 轮工具调用）
+    3. ToolExecutionTracker（去重 + 补偿）
+    4. TurnEnd 暂缓（工具执行后强制确认）
+    """
 
-    def compile_agent_workflow(self):
-        """编译 Agent 主工作流：input → intent → tool → response → END。"""
-        graph = StateGraph(AgentState)
+    def __init__(self) -> None:
+        self._planner: Any = None  # 保留兼容
+        self._executor: Any = None  # 保留兼容
+        self._event_bus: EventBus | None = None
+        self._llm: Any = None
+        self._tool_registry: Any = None
 
-        graph.add_node("input_processor", self._input_processor)
-        graph.add_node("intent_router", self._intent_router)
-        graph.add_node("tool_executor", self._tool_executor)
-        graph.add_node("response_builder", self._response_builder)
+    def initialize(self, llm: Any, tool_registry: Any, event_bus: EventBus) -> None:
+        """运行时初始化（在 app startup 时调用）"""
+        self._llm = llm
+        self._tool_registry = tool_registry
+        self._event_bus = event_bus
 
-        graph.add_edge(START, "input_processor")
-        graph.add_edge("input_processor", "intent_router")
-        graph.add_conditional_edges(
-            "intent_router",
-            self._route_after_intent,
-            {
-                "needs_tool": "tool_executor",
-                "direct_response": "response_builder",
-            },
+    async def run_turn(
+        self,
+        session_id: str,
+        user_id: int,
+        messages: list[dict[str, Any]],
+        current_message: str,
+        db: Any,
+        explicit_tool: str | None = None,
+    ) -> str:
+        """执行一个学生 turn 的完整 ReAct 循环。
+
+        Args:
+            session_id: 会话 ID
+            user_id: 用户 ID
+            messages: 对话历史（API 格式）
+            current_message: 当前学生消息
+            db: SQLAlchemy Session
+            explicit_tool: 学生显式选择的工具名（Plugin::Tool 格式）
+
+        Returns:
+            Agent 的最终文本回复
+        """
+        from app.kernel.agent.context import (
+            assemble_messages,
+            build_system_prompt,
+            load_identity,
         )
-        graph.add_edge("tool_executor", "response_builder")
-        graph.add_edge("response_builder", END)
+        from app.kernel.chat.service import add_message
+        from app.kernel.models import User
 
-        return graph.compile()
+        # 1. 加载身份和学生信息
+        identity = load_identity("agent")
+        tools = self._tool_registry.list_all()
+        user = db.get(User, user_id)
+        profile = (
+            {"grade": user.grade, "main_subject": user.main_subject} if user else None
+        )
+        system_prompt = build_system_prompt(identity, tools, profile)
 
-    # ── 节点实现 ──────────────────────────────────
-
-    async def _input_processor(self, state: AgentState) -> AgentState:
-        """解析学生输入：提取文字、处理文件。"""
-        file_path = state.get("file_path")
-        file_data_url = state.get("file_data_url")
-        file_content = state.get("file_content")
-
-        # 如果有图片但没有描述，调用视觉 LLM 生成描述
-        if file_data_url and not file_content:
-            try:
-                file_content = await self._context.capabilities.llm.vision_chat_completions(
-                    system_prompt=(
-                        "你是一个图片内容识别助手。请严格按图片中的实际内容进行描述。\n"
-                        "重要规则：\n"
-                        "1. 只描述图片中实际存在的文字和内容，不要推测或编造\n"
-                        "2. 不要假设图片中不存在的内容\n\n"
-                        "请按以下结构输出：\n"
-                        "- 题目内容：逐题列出所有题目文字\n"
-                        "- 手写内容：图片中是否存在手写内容？如果有，逐字识别手写文字\n"
-                        "- 作答状态：如果有手写内容，判断学生是否完成了作答（有完整解题过程=已作答，只有部分步骤或空白=未完成）\n"
-                        "- 学科判断：根据题目内容判断属于哪个学科"
-                    ),
-                    user_prompt="请按上述结构逐题分析这张图片的内容。",
-                    image_data_url=file_data_url,
-                    temperature=0.1,
-                    max_tokens=2048,
-                )
-            except Exception:
-                file_content = "[图片内容识别失败]"
-
-        return {
-            **state,
-            "file_content": file_content,
-        }
-
-    async def _intent_router(self, state: AgentState) -> AgentState:
-        """调用 LLM 进行意图识别。"""
-        return await run_intent_router(state, self._context)
-
-    async def _tool_executor(self, state: AgentState) -> AgentState:
-        """根据意图调用对应工具。当前为占位实现。"""
-        tool_address = state.get("tool_to_call")
-        if not tool_address:
-            return state
-
-        # TODO: 接入真实的工具调用
-        # 当前返回占位结果
-        return {
-            **state,
-            "tool_result": {"status": "placeholder", "tool": tool_address},
-        }
-
-    async def _response_builder(self, state: AgentState) -> AgentState:
-        """组装上下文，调用 LLM 生成回复。"""
-        llm = self._context.capabilities.llm
-
-        system_prompt = build_system_prompt(state)
-        context_messages = build_context_messages(state)
-        user_message = build_user_message(state)
-
-        # 如果是练习请求（场景2未开放），直接返回提示
-        if state.get("intent") == INTENT_PRACTICE_REQUEST:
-            return {
-                **state,
-                "llm_response": "分层练习功能即将开放，敬请期待！目前你可以通过上传作业来获取批改和错题分析。",
-                "card_type": None,
-                "card_payload": None,
-            }
-
-        try:
-            # 使用 chat_completions_text（兼容 DeepSeek 等非 OpenAI 供应商）
-            response_text = await llm.chat_completions_text(
-                system_prompt=system_prompt,
-                user_prompt=user_message,
-                temperature=0.7,
-                max_tokens=2048,
+        # 2. 意图快速分流（显式工具绑定时跳过）
+        intent = classify_intent(current_message) if not explicit_tool else "ambiguous"
+        if intent == "chitchat":
+            api_messages = assemble_messages(system_prompt, messages, current_message)
+            reply = await self._stream_and_collect(api_messages, session_id, tools=None)
+            add_message(
+                db, session_id=int(session_id), role="agent", content=reply
             )
-        except Exception:
-            response_text = "抱歉，我暂时无法回答这个问题，请稍后再试。"
+            return reply
 
-        return {
-            **state,
-            "llm_response": response_text,
-            "card_type": None,
-            "card_payload": None,
-        }
+        # 3. ReAct 循环
+        api_messages = assemble_messages(system_prompt, messages, current_message)
 
-    # ── 条件路由 ──────────────────────────────────
+        # 显式工具绑定：注入约束消息，LLM 必须执行该工具
+        if explicit_tool:
+            api_messages.append({
+                "role": "system",
+                "content": (
+                    f"学生显式调用了工具「{explicit_tool}」。"
+                    f"你必须在本轮中调用此工具，不要跳过或询问学生。"
+                    f"从学生的消息中提取参数并执行。"
+                ),
+            })
 
-    def _route_after_intent(self, state: AgentState) -> str:
-        """意图识别后决定走工具还是直接回答。"""
-        intent = state.get("intent", INTENT_UNCLEAR)
-        tool = state.get("tool_to_call")
+        tool_schemas = self._build_tool_schemas(tools)
+        tracker = ToolExecutionTracker()
+        final_reply = ""
 
-        # 需要调工具的意图
-        if tool and intent not in {
-            INTENT_GENERAL_CHAT,
-            INTENT_KNOWLEDGE_QUESTION,
-            INTENT_QUESTION_EXPLANATION,
-            INTENT_ANSWER_VERIFICATION,
-            INTENT_UNCLEAR,
-        }:
-            return "needs_tool"
+        for round_num in range(MAX_TOOL_CALLS_PER_TURN):
+            tool_called_this_round = False
+            round_tool_calls: list[dict[str, Any]] = []
 
-        return "direct_response"
+            async for event in self._llm.stream_chat(api_messages, tool_schemas):
+                if event.type == "text_delta":
+                    final_reply += event.delta
+                    self._emit(
+                        session_id,
+                        EventType.CHAT_TEXT_DELTA,
+                        data={"delta": event.delta},
+                    )
 
-    # ── 旧接口兼容 ────────────────────────────────
+                elif event.type == "tool_call":
+                    round_tool_calls.append(
+                        {
+                            "name": event.tool_name,
+                            "arguments": event.tool_args,
+                            "call_id": event.tool_call_id,
+                        }
+                    )
+                    if tracker.already_executed(event.tool_name, event.tool_args):
+                        continue
 
-    def compile_linear_workflow(self, state_schema: type, steps: list[AgentStep]):
-        """保留旧的线性工作流编译方法，供其他插件使用。"""
+                    tool_called_this_round = True
+                    self._emit(
+                        session_id,
+                        EventType.PLAN_STEP_TOOL_CALL,
+                        data={"tool_name": event.tool_name, "round": round_num},
+                    )
+
+                    tool = self._tool_registry.get(event.tool_name)
+                    if tool:
+                        try:
+                            result = await tool.handler(**event.tool_args)
+                            tracker.record(
+                                event.tool_name, event.tool_args, result, ok=True
+                            )
+                            self._emit(
+                                session_id,
+                                EventType.PLAN_STEP_TOOL_RESULT,
+                                data={"result": result},
+                            )
+                            # Responses API format: function_call item
+                            api_messages.append(
+                                {
+                                    "type": "function_call",
+                                    "call_id": event.tool_call_id,
+                                    "name": event.tool_name,
+                                    "arguments": json.dumps(
+                                        event.tool_args, ensure_ascii=False
+                                    ),
+                                }
+                            )
+                            # Responses API format: function_call_output item
+                            api_messages.append(
+                                {
+                                    "type": "function_call_output",
+                                    "call_id": event.tool_call_id,
+                                    "output": json.dumps(
+                                        result, ensure_ascii=False
+                                    ),
+                                }
+                            )
+                        except Exception as e:
+                            tracker.record(
+                                event.tool_name, event.tool_args, str(e), ok=False
+                            )
+                            self._emit(
+                                session_id,
+                                EventType.PLAN_STEP_ERROR,
+                                data={"error": str(e)},
+                            )
+                            api_messages.append(
+                                {
+                                    "type": "function_call_output",
+                                    "call_id": event.tool_call_id,
+                                    "output": json.dumps(
+                                        {"error": str(e)}, ensure_ascii=False
+                                    ),
+                                }
+                            )
+
+                elif event.type == "done":
+                    break
+
+            # 补偿遗漏
+            missed = tracker.missed_calls(round_tool_calls)
+            for tc in missed:
+                tool = self._tool_registry.get(tc["name"])
+                if tool:
+                    try:
+                        result = await tool.handler(**tc.get("arguments", {}))
+                        tracker.record(
+                            tc["name"], tc.get("arguments", {}), result, ok=True
+                        )
+                    except Exception:
+                        pass
+
+            if not tool_called_this_round:
+                break
+
+            # TurnEnd 暂缓
+            if round_num < MAX_TOOL_CALLS_PER_TURN - 1:
+                summary = tracker.summary_for_prompt()
+                api_messages.append(
+                    {
+                        "role": "system",
+                        "content": f"你刚执行了工具。{summary}\n请确认工具结果后回复学生。",
+                    }
+                )
+
+        # 4. 持久化
+        add_message(db, session_id=int(session_id), role="agent", content=final_reply)
+        self._emit(
+            session_id, EventType.PLAN_DONE, data={"reply_length": len(final_reply)}
+        )
+        return final_reply
+
+    async def stream_text_reply(self, session_id: str, text: str) -> None:
+        """流式文本回复（通用问答场景，向后兼容）。"""
+        assert self._event_bus is not None, "AgentRuntime not initialized"
+        chunk_size = 20
+        for i in range(0, len(text), chunk_size):
+            chunk = text[i : i + chunk_size]
+            self._event_bus.emit(
+                AgentEvent(
+                    type=EventType.CHAT_TEXT_DELTA,
+                    session_id=session_id,
+                    data={"delta": chunk},
+                )
+            )
+
+    # ── private helpers ─────────────────────────────────────────────
+
+    async def _stream_and_collect(
+        self,
+        messages: list[dict[str, Any]],
+        session_id: str,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> str:
+        reply = ""
+        async for event in self._llm.stream_chat(messages, tools):
+            if event.type == "text_delta":
+                reply += event.delta
+                self._emit(
+                    session_id, EventType.CHAT_TEXT_DELTA, data={"delta": event.delta}
+                )
+            elif event.type == "done":
+                break
+        return reply
+
+    def _build_tool_schemas(self, tools: list[Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "function",
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.schema or {"type": "object", "properties": {}},
+                "strict": True,
+            }
+            for t in tools
+        ]
+
+    def _emit(
+        self,
+        session_id: str,
+        event_type: EventType,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        if self._event_bus:
+            self._event_bus.emit(
+                AgentEvent(
+                    type=event_type, session_id=session_id, data=data or {}
+                )
+            )
+
+    # ── 保留编译工作流接口（插件依赖） ─────────────────────────────
+
+    def compile_linear_workflow(
+        self, state_schema: type, steps: list[AgentStep]
+    ) -> Any:
         if not steps:
             raise ValueError("Agent workflow must contain at least one step")
         graph = StateGraph(state_schema)

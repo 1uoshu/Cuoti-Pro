@@ -24,6 +24,7 @@ class PluginSpec:
     category: str = "feature"
     capabilities: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+    tools: tuple[Any, ...] = ()  # tuple[ToolSpec, ...]，用 Any 避免循环导入
 
 
 class PluginLoadError(RuntimeError):
@@ -56,6 +57,20 @@ class PluginManager:
             }
             for spec in self._specs
         ]
+
+    def collect_tools(self) -> list:
+        """收集所有插件注册的工具"""
+        from app.kernel.agent.tools import ToolSpec
+
+        tools = []
+        for spec in self._specs:
+            for tool in spec.tools:
+                if not isinstance(tool, ToolSpec):
+                    raise PluginLoadError(
+                        f"Plugin '{spec.name}' returned invalid ToolSpec"
+                    )
+                tools.append(tool)
+        return tools
 
 
 def load_plugins(module_names: list[str], context: KernelContext) -> PluginManager:
