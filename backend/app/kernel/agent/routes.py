@@ -1,6 +1,7 @@
 """Agent HTTP routes -- sessions, messages, upload, replay, address suggestions."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -120,6 +121,10 @@ async def upload_for_grading(
     from app.plugins.assignment_grading.service import create_assignment
 
     assignment, task = await create_assignment(context, db, user, file, subject, title)
+
+    # 异步触发批改
+    from app.plugins.assignment_grading.service import process_assignment_task
+    asyncio.create_task(process_assignment_task(task.id))
 
     # 如果提供了 session_id，记录上传消息
     if session_id:

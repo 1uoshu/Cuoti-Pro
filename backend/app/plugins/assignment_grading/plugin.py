@@ -8,41 +8,50 @@ from app.plugins.assignment_grading.service import create_assignment, process_as
 
 def _build_upload_and_grade_tool(context: KernelContext) -> ToolSpec:
     """构建 UploadAndGrade 工具规格"""
+
     async def upload_and_grade_handler(
-        file_path: str,
-        subject: str,
-        student_id: int,
-        title: str | None = None,
-        grade: str | None = None,
+        assignment_id: int,
+        **kwargs,
     ) -> dict:
-        """执行批改工作流（直接调用 service 层）"""
+        """执行批改工作流。
+
+        从数据库读取 assignment 信息，不需要 LLM 传 file_path。
+        """
+        from app.kernel.database import SessionLocal
+        from app.plugins.assignment_grading.models import Assignment
         from app.plugins.assignment_grading.workflow import run_grading_workflow
-        result = await run_grading_workflow(
-            context,
-            file_path=file_path,
-            subject=subject,
-            grade=grade,
-            student_id=str(student_id),
-        )
-        return result.model_dump() if hasattr(result, 'model_dump') else result.dict()
+        from app.kernel.models import User
+
+        with SessionLocal() as db:
+            assignment = db.get(Assignment, assignment_id)
+            if assignment is None:
+                return {"error": f"作业 {assignment_id} 不存在"}
+            user = db.get(User, assignment.user_id)
+            if user is None:
+                return {"error": "用户不存在"}
+
+            result = await run_grading_workflow(
+                context,
+                assignment.file_path,
+                assignment.subject,
+                user.grade,
+                student_id=str(user.id),
+            )
+            return result.model_dump() if hasattr(result, 'model_dump') else result.dict()
 
     return ToolSpec(
         name="AssignmentGrading::UploadAndGrade",
-        description="上传作业图片或PDF，自动识别题目和手写作答，判分并标注知识点",
+        description="批改已上传的作业。当学生上传作业后，自动调用此工具进行识别、判分、标注知识点。",
         short_intent="批改作业",
         side_effect=SideEffect.WRITE,
-        requires_confirmation=False,  # 学生显式上传点击即执行
+        requires_confirmation=False,
         handler=upload_and_grade_handler,
         schema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "上传文件的存储路径"},
-                "subject": {"type": "string", "description": "学科名称"},
-                "student_id": {"type": "integer", "description": "学生用户ID"},
-                "title": {"type": "string", "description": "作业标题（可选）"},
-                "grade": {"type": "string", "description": "年级（可选）"},
+                "assignment_id": {"type": "integer", "description": "作业ID（从上传结果中获取）"},
             },
-            "required": ["file_path", "subject", "student_id"],
+            "required": ["assignment_id"],
         },
     )
 

@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -5,7 +7,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.kernel.auth.dependencies import get_current_user
 from app.kernel.context import get_kernel_context
 from app.kernel.database import get_db
-from app.kernel.jobs import KernelBackgroundTasks
 from app.kernel.models import User
 from app.kernel.responses import ok
 from app.plugins.assignment_grading.models import Assignment, ProcessingTask, Question
@@ -20,7 +21,6 @@ router = APIRouter(tags=["assignment-grading"])
 @router.post("/assignments")
 async def upload_assignment(
     request: Request,
-    background_tasks: KernelBackgroundTasks,
     file: UploadFile = File(...),
     subject: str = Form(...),
     title: str | None = Form(default=None),
@@ -29,7 +29,8 @@ async def upload_assignment(
 ):
     context = get_kernel_context()
     assignment, task = await create_assignment(context, db, user, file, subject, title)
-    context.capabilities.jobs.enqueue(background_tasks, process_assignment_task, task.id)
+    # 异步执行批改（不阻塞响应）
+    asyncio.create_task(process_assignment_task(task.id))
     context.capabilities.audit.record(
         db,
         event_type="assignment.uploaded",

@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 from pathlib import Path
 
@@ -60,7 +59,7 @@ async def create_assignment(
     return assignment, task
 
 
-def process_assignment_task(task_id: str) -> None:
+async def process_assignment_task(task_id: str) -> None:
     context = get_kernel_context()
     with context.capabilities.database.session() as db:
         try:
@@ -79,14 +78,12 @@ def process_assignment_task(task_id: str) -> None:
             user = db.get(User, assignment.user_id)
             if user is None:
                 raise RuntimeError("assignment owner does not exist")
-            payload = asyncio.run(
-                run_grading_workflow(
-                    context,
-                    assignment.file_path,
-                    assignment.subject,
-                    user.grade,
-                    student_id=str(user.id),
-                )
+            payload = await run_grading_workflow(
+                context,
+                assignment.file_path,
+                assignment.subject,
+                user.grade,
+                student_id=str(user.id),
             )
 
             if not payload.questions:
