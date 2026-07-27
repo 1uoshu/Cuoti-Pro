@@ -17,6 +17,8 @@ from app.plugins.wrong_question_book.service import (
 router = APIRouter(tags=["wrong-question-book"])
 
 
+# ── 列表 ──────────────────────────────────────────
+
 @router.get("/wrong-questions")
 def wrong_questions(subject: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return ok(list_wrong_questions(db, user.id, subject))

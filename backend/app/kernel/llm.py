@@ -82,6 +82,118 @@ class LLMGateway:
         base_url = self._settings.openai_base_url or "https://api.openai.com/v1"
         return f"{base_url.rstrip('/')}/responses"
 
+    @property
+    def chat_completions_url(self) -> str:
+        base_url = self._settings.openai_base_url or "https://api.openai.com/v1"
+        return f"{base_url.rstrip('/')}/chat/completions"
+
+    async def chat_completions_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> dict[str, Any]:
+        """Chat Completions API — compatible with DeepSeek, Qwen, and other non-OpenAI providers."""
+        request = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        async with self._client() as client:
+            try:
+                response = await client.post(self.chat_completions_url, json=request)
+            except httpx.HTTPError as exc:
+                raise LLMAPIError(f"Chat Completions transport failed: {type(exc).__name__}") from None
+            if response.status_code >= 400:
+                raise LLMAPIError(f"Chat Completions returned HTTP {response.status_code}: {response.text[:500]}")
+            payload = response.json()
+        content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            raise LLMAPIError("Chat Completions returned empty content")
+        return self.extract_json(content)
+
+    async def chat_completions_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Chat Completions API — returns raw text (no JSON parsing)."""
+        request = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        async with self._client() as client:
+            try:
+                response = await client.post(self.chat_completions_url, json=request)
+            except httpx.HTTPError as exc:
+                raise LLMAPIError(f"Chat Completions transport failed: {type(exc).__name__}") from None
+            if response.status_code >= 400:
+                raise LLMAPIError(f"Chat Completions returned HTTP {response.status_code}: {response.text[:500]}")
+            payload = response.json()
+        content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            raise LLMAPIError("Chat Completions returned empty content")
+        return content
+
+    async def vision_chat_completions(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_data_url: str,
+        *,
+        temperature: float = 0.1,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Vision Chat Completions — uses VISION_* env vars for multimodal models."""
+        vision_key = self._settings.vision_api_key or self._settings.openai_api_key
+        vision_base = self._settings.vision_base_url or self._settings.openai_base_url or "https://api.openai.com/v1"
+        vision_model = self._settings.vision_model or self._settings.openai_model
+        vision_url = f"{vision_base.rstrip('/')}/chat/completions"
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ]},
+        ]
+        request = {
+            "model": vision_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        headers = {
+            "Authorization": f"Bearer {vision_key}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(headers=headers, timeout=60) as client:
+            try:
+                response = await client.post(vision_url, json=request)
+            except httpx.HTTPError as exc:
+                raise LLMAPIError(f"Vision API transport failed: {type(exc).__name__}") from None
+            if response.status_code >= 400:
+                raise LLMAPIError(f"Vision API returned HTTP {response.status_code}: {response.text[:500]}")
+            payload = response.json()
+        content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            raise LLMAPIError("Vision API returned empty content")
+        return content
+
     @staticmethod
     def extract_json(raw_response: str) -> dict[str, Any]:
         text = raw_response.strip()

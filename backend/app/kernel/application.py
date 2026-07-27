@@ -22,6 +22,7 @@ from app.kernel.database import Base, engine
 from app.kernel.database import SessionLocal
 from app.kernel.plugins import PluginManager, load_plugins
 from app.kernel.redis import ensure_redis_available
+from app.kernel.middleware import RateLimitMiddleware
 from app.kernel.responses import GENERIC_SERVER_ERROR_MESSAGE, error, ok
 
 
@@ -54,6 +55,14 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    app.add_middleware(
+        RateLimitMiddleware,
+        redis=context.capabilities.redis,
+        per_ip_limit=settings.rate_limit_per_ip,
+        per_user_limit=settings.rate_limit_per_user,
+        upload_limit=settings.rate_limit_upload,
+        window_seconds=settings.rate_limit_window_seconds,
     )
     app.include_router(_build_api_router(plugin_manager))
     _register_error_handlers(app)

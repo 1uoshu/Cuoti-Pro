@@ -82,6 +82,13 @@ def build_kernel_context(settings: Settings | None = None) -> KernelContext:
             tool_registry=tool_registry,
         ),
     )
+    # Rebuild agent_runtime with actual context reference
+    object.__setattr__(
+        context.capabilities,
+        "agent_runtime",
+        AgentRuntime(context),
+    )
+    return context
 
 
 def set_kernel_context(context: KernelContext) -> None:

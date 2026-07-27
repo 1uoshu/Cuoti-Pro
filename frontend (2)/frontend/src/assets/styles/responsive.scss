@@ -1,0 +1,43 @@
+/* ===== 智学错题 响应式设计系统 ===== */
+
+/* ----- 断点 ----- */
+$mobile-max: 480px;
+$tablet-max: 768px;
+$desktop-min: 769px;
+
+/* ----- 响应式 Mixins ----- */
+@mixin mobile {
+  @media (max-width: $mobile-max) { @content; }
+}
+
+@mixin tablet {
+  @media (max-width: $tablet-max) { @content; }
+}
+
+@mixin tablet-up {
+  @media (min-width: $desktop-min) { @content; }
+}
+
+@mixin desktop {
+  @media (min-width: 1024px) { @content; }
+}
+
+/* ----- 工具类 ----- */
+/* 在桌面端隐藏 */
+.desktop-only {
+  @include tablet {
+    display: none !important;
+  }
+}
+
+/* 在手机端隐藏 */
+.mobile-only {
+  @include tablet-up {
+    display: none !important;
+  }
+}
+
+/* 安全区域底部适配（全面屏手机） */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
