@@ -11,25 +11,56 @@ from app.plugins.layered_practice.workflow import build_practice_workflow, gener
 
 
 class RecordingMultimodalLLM:
+    """两跳批改链路的桩：vision_json_many 逐页识别 -> chat_json_with_python 判分。
+
+    多页 PDF 的每一页都会转成 data URL 一并交给视觉识别，因此断言 image_data_urls
+    覆盖全部页面，验证"逐页识别"能力没有因两跳改造而丢失。
+    """
+
     def __init__(self) -> None:
         self.image_data_urls: list[str] = []
 
-    async def vision_json_many_with_python(
+    async def vision_json_many(
         self,
         system_prompt: str,
         user_prompt: str,
         image_data_urls: list[str],
-        sandbox,
         *,
         temperature: float,
         max_tokens: int,
     ):
         assert system_prompt
-        assert "全部页面" in user_prompt
+        assert temperature == 0.0
+        assert max_tokens >= 4000
+        # 记录传入的整份页面，确认多页 PDF 未被截断
+        self.image_data_urls = image_data_urls
+        return {
+            "questions": [
+                {
+                    "question_number": "1",
+                    "question_text": "第一页题目",
+                    "options": "",
+                    "student_answer": "1",
+                },
+                {
+                    "question_number": "2",
+                    "question_text": "第二页题目",
+                    "options": "",
+                    "student_answer": "3",
+                },
+            ]
+        }
+
+    async def chat_json_with_python(
+        self, system_prompt: str, user_prompt: str, sandbox, *, temperature: float, max_tokens: int, **_kwargs
+    ):
+        assert system_prompt
+        assert isinstance(sandbox, PythonSandbox)
         assert temperature == 0.1
         assert max_tokens >= 4000
-        assert isinstance(sandbox, PythonSandbox)
-        self.image_data_urls = image_data_urls
+        # 判分结果里应能看到识别出的两页题目
+        assert "第一页题目" in user_prompt
+        assert "第二页题目" in user_prompt
         return {
             "subject": "数学",
             "questions": [

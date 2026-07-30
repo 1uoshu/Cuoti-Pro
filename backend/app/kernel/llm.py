@@ -82,11 +82,6 @@ class LLMGateway:
         base_url = self._settings.openai_base_url or "https://api.openai.com/v1"
         return f"{base_url.rstrip('/')}/responses"
 
-    @property
-    def chat_completions_url(self) -> str:
-        base_url = self._settings.openai_base_url or "https://api.openai.com/v1"
-        return f"{base_url.rstrip('/')}/chat/completions"
-
     async def chat_completions_json(
         self,
         system_prompt: str,
@@ -196,16 +191,58 @@ class LLMGateway:
 
     @staticmethod
     def extract_json(raw_response: str) -> dict[str, Any]:
+        """从模型回复中稳健地提取 JSON 对象。
+
+        模型常在 JSON 前后夹带推理文字，且 JSON 内含 LaTeX（如 \\frac{x}{y}）。
+        朴素的 find('{')/rfind('}') 会误抓 LaTeX 或散文里的花括号导致解析失败。
+        这里做「字符串感知的花括号配对扫描」：找出所有能成功解析成 dict 的平衡花括号片段，
+        返回内容最丰富的那个（真正的判分结果，而非散文里的零星 {}）。
+        """
         text = raw_response.strip()
-        if "```" in text:
-            sections = text.split("```")
-            if len(sections) >= 3:
-                text = sections[1].removeprefix("json").strip()
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1:
-            raise ValueError("模型没有返回 JSON 对象")
-        return json.loads(text[start : end + 1])
+        candidates: list[dict[str, Any]] = []
+        n = len(text)
+        i = 0
+        while i < n:
+            if text[i] != "{":
+                i += 1
+                continue
+            depth = 0
+            in_str = False
+            esc = False
+            matched = -1
+            j = i
+            while j < n:
+                ch = text[j]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                elif ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        matched = j
+                        break
+                j += 1
+            if matched != -1:
+                try:
+                    obj = json.loads(text[i : matched + 1])
+                    if isinstance(obj, dict):
+                        candidates.append(obj)
+                        i = matched + 1
+                        continue
+                except json.JSONDecodeError:
+                    pass
+            i += 1
+        if candidates:
+            return max(candidates, key=lambda d: len(json.dumps(d, ensure_ascii=False)))
+        raise ValueError("模型没有返回 JSON 对象")
 
     async def chat_json(
         self,
@@ -252,6 +289,16 @@ class LLMGateway:
         Yields:
             StreamEvent instances: text_delta, tool_call, done, or error.
         """
+        import sys
+        sys.stderr.write(f"[LLM] stream_chat called, messages={len(messages)}, tools={len(tools) if tools else 0}\n")
+        sys.stderr.write(f"[LLM] Last message role: {messages[-1].get('role') if messages else 'N/A'}\n")
+        sys.stderr.write(f"[LLM] Last message type: {messages[-1].get('type') if messages else 'N/A'}\n")
+        if messages and len(messages) > 3:
+            sys.stderr.write(f"[LLM] Message[-2] type: {messages[-2].get('type')}\n")
+        # Print all message types and roles for debugging
+        for i, msg in enumerate(messages):
+            sys.stderr.write(f"[LLM] Msg[{i}]: role={msg.get('role')}, type={msg.get('type')}, content_len={len(str(msg.get('content', '')))}\n")
+        sys.stderr.flush()
         # Convert tool schemas to Chat Completions format
         # Note: DeepSeek only allows [a-zA-Z0-9_-] in function names, so :: -> __
         cc_tools = None
@@ -270,8 +317,36 @@ class LLMGateway:
                     },
                 })
 
+        # Convert Responses API format messages to Chat Completions format
+        cc_messages = []
+        for msg in messages:
+            if msg.get("type") == "function_call":
+                # Convert function_call to assistant message with tool_calls
+                cc_messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": msg.get("call_id"),
+                        "type": "function",
+                        "function": {
+                            "name": msg.get("name", "").replace("::", "__"),
+                            "arguments": msg.get("arguments", "{}"),
+                        },
+                    }],
+                })
+            elif msg.get("type") == "function_call_output":
+                # Convert function_call_output to tool message
+                cc_messages.append({
+                    "role": "tool",
+                    "tool_call_id": msg.get("call_id"),
+                    "content": msg.get("output", "{}"),
+                })
+            else:
+                # Keep regular messages as-is
+                cc_messages.append(msg)
+
         request: dict[str, Any] = {
-            "messages": messages,
+            "messages": cc_messages,
             "model": model or self.model,
             "max_tokens": max_tokens,
             "stream": True,
@@ -563,29 +638,33 @@ class LLMGateway:
                 messages.append({"role": "user", "content": item})
 
         attempted_tool_calls = 0
-        successful_tool_calls = 0
+        round_index = 0
 
         client_ctx = self._vision_client() if use_vision_client else self._client()
+        post_fn = self._post_vision if use_vision_client else self._post_response
         async with client_ctx as client:
             while True:
-                tool_choice: Any = (
-                    {"type": "function", "function": {"name": "python_verify"}}
-                    if successful_tool_calls == 0
-                    else "auto"
-                )
-                request = {
+                budget_left = attempted_tool_calls < max_tool_calls
+                request: dict[str, Any] = {
                     "messages": messages,
                     "model": target_model,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                     "tools": tools,
-                    "tool_choice": tool_choice,
-                    "thinking": {"type": "disabled"},  # 指定函数的 tool_choice 需要关闭 thinking
+                    "thinking": {"type": "disabled"},  # 关闭 thinking，兼容强制 tool_choice
                 }
-                post_fn = self._post_vision if use_vision_client else self._post_response
+                if not budget_left:
+                    # 验算预算耗尽：强制模型基于已有验算证据直接产出最终 JSON（降级而非崩溃）
+                    request["tool_choice"] = "none"
+                elif round_index == 0:
+                    # 首轮强制验算，鼓励"先算后判"
+                    request["tool_choice"] = {"type": "function", "function": {"name": "python_verify"}}
+                else:
+                    # 之后交给模型自主决定是否继续验算或给出答案
+                    request["tool_choice"] = "auto"
+
                 response = await post_fn(client, request)
 
-                # Parse Chat Completions response
                 choices = response.get("choices", [])
                 if not choices:
                     raise LLMAPIError("Chat Completions API returned no choices")
@@ -593,37 +672,41 @@ class LLMGateway:
                 tool_calls = message.get("tool_calls") or []
 
                 if not tool_calls:
-                    # No tool calls — extract text content
-                    if successful_tool_calls == 0:
-                        raise LLMAPIError("model returned a result without successful python verification")
-                    content = message.get("content", "")
-                    return self.extract_json(content)
-
-                if attempted_tool_calls + len(tool_calls) > max_tool_calls:
-                    raise LLMAPIError("model exceeded the python_verify tool-call limit")
+                    # 模型给出最终答案。验算只是质量增强，不是硬性门槛。
+                    return self.extract_json(message.get("content", ""))
 
                 # Add assistant message with tool calls to history
                 messages.append(message)
 
                 for call in tool_calls:
-                    attempted_tool_calls += 1
                     call_id = call.get("id", "")
-                    func = call.get("function", {})
-                    args_raw = func.get("arguments", "{}")
                     if not isinstance(call_id, str) or not call_id:
                         raise LLMAPIError("model returned a python tool call without id")
+                    if attempted_tool_calls >= max_tool_calls:
+                        # 预算耗尽，仍需回应每个 tool_call 以保持消息序列合法
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": json.dumps(
+                                {"ok": False, "value": None,
+                                 "error": "python_verify budget exhausted; give your best judgment now"},
+                                ensure_ascii=False,
+                            ),
+                        })
+                        continue
+                    attempted_tool_calls += 1
+                    func = call.get("function", {})
                     result = await self._run_python_tool(
                         func.get("name"),
-                        args_raw,
+                        func.get("arguments", "{}"),
                         sandbox,
                     )
-                    if result.get("ok") is True:
-                        successful_tool_calls += 1
                     messages.append({
                         "role": "tool",
                         "tool_call_id": call_id,
                         "content": json.dumps(result, ensure_ascii=False),
                     })
+                round_index += 1
 
     async def _post_response(self, client: httpx.AsyncClient, request: dict[str, Any]) -> dict[str, Any]:
         """Post to Chat Completions API (replaces Responses API for DeepSeek compatibility)."""
@@ -646,11 +729,19 @@ class LLMGateway:
         return payload
 
     async def _post_vision(self, client: httpx.AsyncClient, request: dict[str, Any]) -> dict[str, Any]:
-        """Post to Vision API (SiliconFlow/Qwen3-VL)."""
-        try:
-            response = await client.post(self.vision_chat_completions_url, json=request)
-        except httpx.HTTPError as exc:
-            raise LLMAPIError(f"Vision API transport failed: {type(exc).__name__}") from None
+        """Post to Vision API (SiliconFlow/Qwen3-VL). Retries transient transport errors."""
+        last_exc: httpx.HTTPError | None = None
+        response = None
+        for attempt in range(3):
+            try:
+                response = await client.post(self.vision_chat_completions_url, json=request)
+                break
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))  # 视觉端点偶发 ConnectError，退避重试
+        if response is None:
+            raise LLMAPIError(f"Vision API transport failed: {type(last_exc).__name__}") from None
 
         try:
             payload = response.json()

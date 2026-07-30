@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     openai_reasoning_effort: str = "xhigh"
     openai_disable_response_storage: bool = True
     openai_timeout_seconds: float = 120
-    vision_api_key: str = ""
-    vision_base_url: str = ""
-    vision_model: str = ""
     max_upload_mb: int = 10
     max_pdf_pages: int = 10
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
@@ -49,7 +46,6 @@ class Settings(BaseSettings):
         "app.plugins.mastery_tracking,"
         "app.plugins.wrong_question_book,"
         "app.plugins.assignment_grading,"
-        "app.plugins.agent_chat,"
         "app.plugins.layered_practice,"
         "app.plugins.stage_assessment,"
         "app.plugins.learning_dashboard,"

@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import ChatView from '@/views/ChatView.vue'
+import WrongQuestionsView from '@/views/WrongQuestionsView.vue'
 
 const routes = [
   {
@@ -12,8 +14,14 @@ const routes = [
   {
     path: '/chat',
     name: 'Chat',
-    component: () => import('@/views/ChatView.vue'),
+    component: ChatView,
     meta: { title: '对话', requiresAuth: true }
+  },
+  {
+    path: '/wrong-questions',
+    name: 'WrongQuestions',
+    component: WrongQuestionsView,
+    meta: { title: '错题本', requiresAuth: true }
   },
   {
     path: '/:pathMatch(.*)*',

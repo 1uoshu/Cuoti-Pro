@@ -171,7 +171,24 @@ class AgentRuntime:
             return reply
 
         # 3. ReAct 循环
+        import sys
+        sys.stderr.write(f"\n========== RUN_TURN START ==========\n")
+        sys.stderr.write(f"[DEBUG runtime] session_id={session_id}, messages count: {len(messages)}\n")
+        for i, msg in enumerate(messages):
+            sys.stderr.write(f"[DEBUG runtime] History msg[{i}]: role={msg.get('role')}, content={msg.get('content', '')[:150]}\n")
+        sys.stderr.write(f"[DEBUG runtime] Current message: {current_message[:150]}\n")
+        sys.stderr.flush()
+
         api_messages = assemble_messages(system_prompt, messages, current_message)
+
+        sys.stderr.write(f"[DEBUG runtime] Assembled {len(api_messages)} messages for LLM\n")
+        # 打印最后3条消息（包含当前消息）
+        for i, msg in enumerate(api_messages[-3:]):
+            sys.stderr.write(f"[DEBUG runtime] LLM msg[-{3-i}]: role={msg.get('role')}, content_len={len(msg.get('content', ''))}\n")
+            if 'assignment_id' in msg.get('content', ''):
+                sys.stderr.write(f"[DEBUG runtime] >>> Found assignment_id in message!\n")
+        sys.stderr.write(f"========== RUN_TURN ASSEMBLED ==========\n\n")
+        sys.stderr.flush()
 
         # 显式工具绑定：注入约束消息，LLM 必须执行该工具
         if explicit_tool:
@@ -195,6 +212,10 @@ class AgentRuntime:
             async for event in self._llm.stream_chat(api_messages, tool_schemas):
                 if event.type == "text_delta":
                     final_reply += event.delta
+                    import sys
+                    if len(final_reply) < 100 or len(final_reply) % 100 == 0:
+                        sys.stderr.write(f"[TEXT_DELTA] Round {round_num}, total length: {len(final_reply)}\n")
+                        sys.stderr.flush()
                     self._emit(
                         session_id,
                         EventType.CHAT_TEXT_DELTA,
@@ -202,6 +223,10 @@ class AgentRuntime:
                     )
 
                 elif event.type == "tool_call":
+                    import sys
+                    sys.stderr.write(f"[TOOL_CALL] tool={event.tool_name}, args={event.tool_args}\n")
+                    sys.stderr.flush()
+
                     round_tool_calls.append(
                         {
                             "name": event.tool_name,
@@ -210,6 +235,8 @@ class AgentRuntime:
                         }
                     )
                     if tracker.already_executed(event.tool_name, event.tool_args):
+                        sys.stderr.write(f"[TOOL_CALL] Skipping duplicate\n")
+                        sys.stderr.flush()
                         continue
 
                     tool_called_this_round = True
@@ -220,9 +247,13 @@ class AgentRuntime:
                     )
 
                     tool = self._tool_registry.get(event.tool_name)
+                    sys.stderr.write(f"[TOOL_CALL] Found tool: {tool is not None}\n")
+                    sys.stderr.flush()
                     if tool:
                         try:
                             result = await tool.handler(**event.tool_args)
+                            sys.stderr.write(f"[TOOL_RESULT] result type: {type(result)}, length: {len(str(result))}\n")
+                            sys.stderr.flush()
                             tracker.record(
                                 event.tool_name, event.tool_args, result, ok=True
                             )
@@ -272,6 +303,9 @@ class AgentRuntime:
                             )
 
                 elif event.type == "done":
+                    import sys
+                    sys.stderr.write(f"[DONE] Round {round_num}, final_reply length: {len(final_reply)}\n")
+                    sys.stderr.flush()
                     break
 
             # 补偿遗漏
@@ -291,14 +325,15 @@ class AgentRuntime:
                 break
 
             # TurnEnd 暂缓
-            if round_num < MAX_TOOL_CALLS_PER_TURN - 1:
-                summary = tracker.summary_for_prompt()
-                api_messages.append(
-                    {
-                        "role": "system",
-                        "content": f"你刚执行了工具。{summary}\n请确认工具结果后回复学生。",
-                    }
-                )
+            # 注释掉：在function_call_output后添加system消息会导致DeepSeek API不响应
+            # if round_num < MAX_TOOL_CALLS_PER_TURN - 1:
+            #     summary = tracker.summary_for_prompt()
+            #     api_messages.append(
+            #         {
+            #             "role": "system",
+            #             "content": f"你刚执行了工具。{summary}\n请确认工具结果后回复学生。",
+            #         }
+            #     )
 
         # 4. 持久化
         add_message(db, session_id=int(session_id), role="agent", content=final_reply)

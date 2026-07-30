@@ -84,16 +84,29 @@ async def agent_websocket(
     try:
         while True:
             raw = await websocket.receive_text()
+            import sys
+            sys.stderr.write(f"[WS DEBUG] Received message: {raw[:200]}\n")
+            sys.stderr.flush()
+
             try:
                 message = json.loads(raw)
             except json.JSONDecodeError:
                 message = {"type": "chat.message", "content": raw}
 
             msg_type = message.get("type", "chat.message")
+            sys.stderr.write(f"[WS DEBUG] Message type: {msg_type}, content length: {len(message.get('content', ''))}\n")
+            sys.stderr.flush()
 
             if msg_type == "chat.message":
                 content = message.get("content", "")
                 explicit_tool = message.get("tool")
+
+                # DEBUG: 写入文件
+                with open("/app/ws_debug.txt", "a") as f:
+                    f.write(f"\n=== Received chat.message ===\n")
+                    f.write(f"Content: {content}\n")
+                    f.write(f"Session: {session_id}\n")
+
                 if not content.strip():
                     continue
 

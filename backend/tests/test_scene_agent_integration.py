@@ -8,7 +8,29 @@ from app.main import app
 
 
 class SceneLLM:
-    async def vision_json_many_with_python(self, *_, **__):
+    """两跳批改链路的桩：先 vision_json_many 识别（不解题），再 chat_json_with_python 判分。"""
+
+    async def vision_json_many(self, _system_prompt, _user_prompt, image_data_urls, **_kwargs):
+        # 第一跳：视觉只做结构化识别，回传题干与学生作答，不含对错。
+        return {
+            "questions": [
+                {
+                    "question_number": "1",
+                    "question_text": "1 + 1 = ?",
+                    "options": "",
+                    "student_answer": "3",
+                },
+                {
+                    "question_number": "2",
+                    "question_text": "2 + 2 = ?",
+                    "options": "",
+                    "student_answer": "4",
+                },
+            ]
+        }
+
+    def _grade_payload(self) -> dict:
+        # 第二跳：判分结果（DeepSeek 独立推导后的最终结构）。
         return {
             "subject": "数学",
             "questions": [
@@ -44,6 +66,9 @@ class SceneLLM:
         }
 
     async def chat_json_with_python(self, _system_prompt, user_prompt, *_args, **kwargs):
+        if kwargs["max_tokens"] == 8000:
+            # 作业判分（grade_node）
+            return self._grade_payload()
         if kwargs["max_tokens"] == 3000:
             return {
                 "questions": [
@@ -75,7 +100,7 @@ class SceneLLM:
 
 
 class LowConfidenceLLM(SceneLLM):
-    async def vision_json_many_with_python(self, *_, **__):
+    def _grade_payload(self) -> dict:
         return {
             "subject": "数学",
             "questions": [
@@ -100,7 +125,8 @@ class LowConfidenceLLM(SceneLLM):
 
 
 class FailingLLM(SceneLLM):
-    async def vision_json_many_with_python(self, *_, **__):
+    async def chat_json_with_python(self, _system_prompt, user_prompt, *_args, **kwargs):
+        # 判分环节抛错，验证 service 会把内部细节脱敏成安全提示。
         raise RuntimeError("model secret and stack details")
 
 

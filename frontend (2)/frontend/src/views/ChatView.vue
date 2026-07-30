@@ -46,6 +46,10 @@
       <header class="chat-header">
         <h3>{{ currentSession?.title || '新对话' }}</h3>
         <div class="header-actions">
+          <el-button type="primary" plain size="small" @click="goToWrongQuestions">
+            <el-icon><Collection /></el-icon>
+            <span>错题本</span>
+          </el-button>
           <el-tag v-if="wsConnected" type="success" size="small" effect="dark">已连接</el-tag>
           <el-tag v-else type="info" size="small" effect="plain">未连接</el-tag>
         </div>
@@ -181,13 +185,16 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import {
-  Plus, Fold, Expand, MoreFilled, Paperclip, ChatDotRound, Document, Close
+  Plus, Fold, Expand, MoreFilled, Paperclip, ChatDotRound, Document, Close, Collection
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import { useUserStore } from '@/stores/user'
 import { agentApi } from '@/api'
+
+const router = useRouter()
 
 const userStore = useUserStore()
 const token = computed(() => userStore.token)
@@ -280,8 +287,12 @@ function wsConnect(sessionId) {
 }
 
 function wsSend(data) {
+  console.log('[WS] Attempting to send, ws:', !!ws, 'readyState:', ws?.readyState, 'OPEN:', WebSocket.OPEN)
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(typeof data === 'string' ? data : JSON.stringify(data))
+    console.log('[WS] Message sent:', typeof data === 'string' ? data.substring(0, 50) : JSON.stringify(data).substring(0, 50))
+  } else {
+    console.warn('[WS] Cannot send - WebSocket not open. State:', ws?.readyState)
   }
 }
 
@@ -749,6 +760,10 @@ function scrollToBottom() {
       messageListRef.value.scrollTop = messageListRef.value.scrollHeight
     }
   })
+}
+
+function goToWrongQuestions() {
+  router.push('/wrong-questions')
 }
 </script>
 

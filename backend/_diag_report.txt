@@ -1,0 +1,71 @@
+图片路径: C:\Users\宇怀\Desktop\作业2.png
+data_urls 数量: 1
+
+######################################################################
+# A1. 视觉 OCR 输出（workflow ocr_node 同款 prompt）
+######################################################################
+OCR 失败: Traceback (most recent call last):
+  File "D:\Microcontroller\agent\Cuoti-Pro-main\Cuoti-Pro-main\backend\_diag_grade.py", line 54, in main
+    ocr_text = await llm.vision_ocr(
+               ^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\Microcontroller\agent\Cuoti-Pro-main\Cuoti-Pro-main\backend\app\kernel\llm.py", line 464, in vision_ocr
+    response = await self._post_vision(client, request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Microcontroller\agent\Cuoti-Pro-main\Cuoti-Pro-main\backend\app\kernel\llm.py", line 653, in _post_vision
+    raise LLMAPIError(f"Vision API transport failed: {type(exc).__name__}") from None
+app.kernel.llm.LLMAPIError: Vision API transport failed: ConnectError
+
+
+######################################################################
+# A2. DeepSeek 基于上面 OCR 文本判分（当前 grade_node 逻辑）
+######################################################################
+DeepSeek 判分失败: Traceback (most recent call last):
+  File "D:\Microcontroller\agent\Cuoti-Pro-main\Cuoti-Pro-main\backend\_diag_grade.py", line 68, in main
+    data = await llm.chat_json_with_python(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+    )
+    ^
+  File "D:\Microcontroller\agent\Cuoti-Pro-main\Cuoti-Pro-main\backend\app\kernel\llm.py", line 381, in chat_json_with_python
+    return await self._json_with_python(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "D:\Microcontroller\agent\Cuoti-Pro-main\Cuoti-Pro-main\backend\app\kernel\llm.py", line 603, in _json_with_python
+    raise LLMAPIError("model exceeded the python_verify tool-call limit")
+app.kernel.llm.LLMAPIError: model exceeded the python_verify tool-call limit
+
+
+######################################################################
+# B. 单跳视觉直接判分（Qwen3-VL 看图 → JSON）
+######################################################################
+题目数: 1
+{
+  "subject": "数学",
+  "questions": [
+    {
+      "question_number": "2",
+      "question_text": "已知椭圆$\\frac{x^2}{16} + \\frac{y^2}{12} = 1$上一点$M$到左焦点$F_1$的距离为6，$N$是$MF_1$的中点，则$|ON| =$",
+      "student_answer": "B",
+      "correct_answer": "B",
+      "question_type": "选择题",
+      "knowledge_point": "椭圆的定义与几何性质",
+      "score": 10,
+      "max_score": 10,
+      "is_correct": true,
+      "explanation": "椭圆$\\frac{x^2}{16} + \\frac{y^2}{12} = 1$中，$a^2=16, b^2=12$，故$c=\\sqrt{a^2-b^2}=2$，左焦点$F_1=(-2,0)$。由椭圆定义，$|MF_1|+|MF_2|=2a=8$，已知$|MF_1|=6$，则$|MF_2|=2$。$N$是$MF_1$中点，$O$是原点，由中位线性质，$|ON|=\\frac{1}{2}|MF_2|=1$？但此推导有误。正确方法：设$M(x,y)$，则$|MF_1|=\\sqrt{(x+2)^2+y^2}=6$，且$\\frac{x^2}{16}+\\frac{y^2}{12}=1$。联立解得$x=2$，$y=\\pm3$。$F_1=(-2,0)$，$N$为$MF_1$中点，坐标为$(0, \\pm1.5)$，故$|ON|=1.5$？与选项不符。重新检查：若$M$在椭圆上，$|MF_1|+|MF_2|=8$，若$|MF_1|=6$，则$|MF_2|=2$。$N$是$MF_1$中点，$O$是$F_1F_2$中点，故$ON$是$\\triangle MF_1F_2$的中位线，$|ON|=\\frac{1}{2}|MF_2|=1$，但选项无1。再检查：$F_1=(-2,0), F_2=(2,0)$，$|F_1F_2|=4$。设$M(x,y)$，$|MF_1|=6$，即$(x+2)^2+y^2=36$，又$\\frac{x^2}{16}+\\frac{y^2}{12}=1$。解方程组：由椭圆方程得$y^2=12(1-\\frac{x^2}{16})=12-\\frac{3x^2}{4}$，代入距离方程：$(x+2)^2 + 12 - \\frac{3x^2}{4} = 36$，展开得$x^2+4x+4+12-\\frac{3x^2}{4}=36$，即$\\frac{x^2}{4}+4x+16=36$，$\\frac{x^2}{4}+4x-20=0$，$x^2+16x-80=0$，解得$x=4$或$x=-20$（舍去）。当$x=4$时，$y^2=12(1-\\frac{16}{16})=0$，故$M(4,0)$。$F_1=(-2,0)$，$N$为$MF_1$中点，坐标为$(1,0)$，$|ON|=1$。但选项无1，矛盾。重新审视题目：题目中椭圆方程为$\\frac{x^2}{16} + \\frac{y^2}{12} = 1$，$a=4, b=2\\sqrt{3}, c=\\sqrt{16-12}=2$，焦点$F_1=(-2,0)$。若$M$在椭圆上，$|MF_1|+|MF_2|=8$，若$|MF_1|=6$，则$|MF_2|=2$。$N$是$MF_1$中点，$O$是$F_1F_2$中点，故$ON$是$\\triangle MF_1F_2$的中位线，$|ON|=\\frac{1}{2}|MF_2|=1$。但选项无1，说明题目或选项可能有误。然而学生选B（2），与正确答案1不符。但根据标准解法，正确答案应为1，但选项无1，故可能题目有误。但学生选B，判错。然而，若重新计算：设$M(x,y)$，$|MF_1|=6$，即$(x+2)^2+y^2=36$，椭圆方程$\\frac{x^2}{16}+\\frac{y^2}{12}=1$。解得$x=4, y=0$，$M(4,0)$，$F_1=(-2,0)$，$N=(1,0)$，$|ON|=1$。选项无1，但学生选B（2），故判错。但若题目中椭圆方程为$\\frac{x^2}{16} + \\frac{y^2}{12} = 1$，则正确答案应为1，但选项无1，可能题目或选项错误。然而，根据学生作答，选B，与正确答案不符，故判错。但为严谨，调用验算工具。",
+      "confidence": 0.9,
+      "python_verify": "import sympy as sp\nx, y = sp.symbols('x y')\n# 椭圆方程\nellipse_eq = x**2/16 + y**2/12 - 1\n# 距离方程：到左焦点F1(-2,0)距离为6\ndistance_eq = (x + 2)**2 + y**2 - 36\n# 解方程组\nsolutions = sp.solve([ellipse_eq, distance_eq], (x, y))\n# 计算中点N坐标和|ON|\nresults = []\nfor sol in solutions:\n    x_val, y_val = sol\n    # F1坐标\n    F1 = (-2, 0)\n    # M坐标\n    M = (x_val, y_val)\n    # N是MF1中点\n    N_x = (x_val - 2) / 2\n    N_y = y_val / 2\n    # |ON| = sqrt(N_x^2 + N_y^2)\n    ON = sp.sqrt(N_x**2 + N_y**2)\n    results.append(ON.evalf())\nresults"
+    }
+  ],
+  "total_score": 10,
+  "student_score": 0,
+  "overall_comment": "本题学生选择B，但根据计算，正确答案应为1，选项中无1，可能题目或选项有误。建议核对题目准确性。学生对椭圆性质理解尚可，但需注意计算细节。",
+  "weak_points": [
+    "椭圆的定义与几何性质"
+  ]
+}

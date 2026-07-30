@@ -117,8 +117,28 @@ def convert_history_to_api(
     Returns:
         API 格式消息列表（role: user/assistant）
     """
+    # 写入调试文件
+    with open("/app/convert_history_debug.txt", "a") as f:
+        f.write(f"\n=== convert_history_to_api called, {len(db_messages)} messages ===\n")
+
     api_messages = []
     for msg in db_messages:
         role = "user" if msg.role == "student" else "assistant"
-        api_messages.append({"role": role, "content": msg.content})
+        content = msg.content
+
+        # 如果是上传消息，将元数据附加到content中让Agent能看到
+        if msg.card_type == "uploading" and msg.card_payload:
+            with open("/app/convert_history_debug.txt", "a") as f:
+                f.write(f"Found uploading: id={msg.id}, payload={msg.card_payload}\n")
+
+            assignment_id = msg.card_payload.get("assignment_id")
+            subject = msg.card_payload.get("subject", "")
+            task_id = msg.card_payload.get("task_id", "")
+            if assignment_id:
+                content = f"{content}\n[系统提示：这是作业上传记录，assignment_id={assignment_id}, task_id={task_id}, subject={subject}。批改已在后台自动进行，请等待批改完成后展示结果]"
+                with open("/app/convert_history_debug.txt", "a") as f:
+                    f.write(f"Enhanced content, now length={len(content)}\n")
+
+        api_messages.append({"role": role, "content": content})
+
     return api_messages

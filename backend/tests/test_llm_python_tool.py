@@ -45,51 +45,64 @@ class ScriptedHTTPClient:
         return FakeHTTPResponse(self.payloads[index], self.status_codes[index])
 
 
-def _final_response(text: str) -> dict:
+def _chat_completion(text: str) -> dict:
+    """Chat Completions 最终答复（无 tool_calls）。"""
     return {
-        "id": "resp-final",
-        "status": "completed",
-        "output": [
+        "id": "chatcmpl-final",
+        "choices": [{"message": {"role": "assistant", "content": text}}],
+    }
+
+
+def _tool_call_response(call_id: str, code: str, *, extra_args: dict | None = None) -> dict:
+    """Chat Completions 里带 python_verify 工具调用的一轮答复。"""
+    arguments = {"code": code}
+    if extra_args:
+        arguments.update(extra_args)
+    return {
+        "id": "chatcmpl-tool",
+        "choices": [
             {
-                "type": "message",
-                "content": [{"type": "output_text", "text": text}],
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": "python_verify",
+                                "arguments": json.dumps(arguments),
+                            },
+                        }
+                    ],
+                }
             }
         ],
     }
 
 
+def _gateway(client, **overrides) -> LLMGateway:
+    params = {
+        "openai_api_key": "test-key",
+        "openai_base_url": "https://example.com/v1",
+        "openai_model": "test-model",
+    }
+    params.update(overrides)
+    settings = Settings(**params)
+    gateway = LLMGateway(settings)
+    gateway._client = lambda: client
+    gateway._vision_client = lambda: client
+    return gateway
+
+
 def test_llm_gateway_runs_bounded_python_verify_tool_and_returns_final_json():
     client = ScriptedHTTPClient(
         [
-            {
-                "id": "resp-tool",
-                "status": "completed",
-                "output": [
-                    {
-                        "id": "reasoning-1",
-                        "type": "reasoning",
-                        "summary": [],
-                    },
-                    {
-                        "call_id": "call-1",
-                        "type": "function_call",
-                        "name": "python_verify",
-                        "arguments": json.dumps({"code": "result = {'equivalent': 1 + 1 == 2}"}),
-                    }
-                ],
-            },
-            _final_response('{"confidence": 0.99, "verified": true}'),
+            _tool_call_response("call-1", "result = {'equivalent': 1 + 1 == 2}"),
+            _chat_completion('{"confidence": 0.99, "verified": true}'),
         ]
     )
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="test-key",
-            openai_base_url="https://example.com",
-            openai_model="test-model",
-            openai_reasoning_effort="xhigh",
-        )
-    )
-    gateway._client = lambda: client
+    gateway = _gateway(client, openai_reasoning_effort="xhigh")
     sandbox = RecordingSandbox()
 
     result = asyncio.run(
@@ -105,52 +118,39 @@ def test_llm_gateway_runs_bounded_python_verify_tool_and_returns_final_json():
 
     assert result == {"confidence": 0.99, "verified": True}
     assert sandbox.codes == ["result = {'equivalent': 1 + 1 == 2}"]
-    assert client.calls[0]["url"] == "https://example.com/responses"
+
+    # 两轮都打到 Chat Completions 端点
+    assert client.calls[0]["url"] == "https://example.com/v1/chat/completions"
     first_request = client.calls[0]["json"]
-    assert first_request["tools"][0]["name"] == "python_verify"
-    assert first_request["tool_choice"] == {"type": "function", "name": "python_verify"}
-    assert first_request["reasoning"] == {"effort": "xhigh"}
-    assert first_request["store"] is False
-    assert "temperature" not in first_request
+    assert first_request["tools"][0]["function"]["name"] == "python_verify"
+    # 首轮强制验算
+    assert first_request["tool_choice"] == {"type": "function", "function": {"name": "python_verify"}}
+    assert first_request["thinking"] == {"type": "disabled"}
+    # 之后交给模型自主决定
     assert client.calls[1]["json"]["tool_choice"] == "auto"
-    replayed_output = client.calls[1]["json"]["input"][1:-1]
-    assert replayed_output == client.payloads[0]["output"]
-    tool_output = client.calls[1]["json"]["input"][-1]
-    assert tool_output["type"] == "function_call_output"
-    assert json.loads(tool_output["output"]) == {
+
+    # 第二轮消息序列：system + user + 带 tool_calls 的 assistant + tool 结果
+    replayed = client.calls[1]["json"]["messages"]
+    assert replayed[0]["role"] == "system"
+    assert replayed[1]["role"] == "user"
+    assert replayed[-2]["role"] == "assistant"
+    assert replayed[-2]["tool_calls"][0]["id"] == "call-1"
+    tool_message = replayed[-1]
+    assert tool_message["role"] == "tool"
+    assert tool_message["tool_call_id"] == "call-1"
+    assert json.loads(tool_message["content"]) == {
         "ok": True,
         "value": {"equivalent": True},
         "error": None,
     }
 
 
-def test_llm_gateway_rejects_a_tool_call_without_call_id_before_execution():
-    client = ScriptedHTTPClient(
-        [
-            {
-                "id": "resp-tool",
-                "status": "completed",
-                "output": [
-                    {
-                        "type": "function_call",
-                        "name": "python_verify",
-                        "arguments": json.dumps({"code": "result = {'executed': True}"}),
-                    }
-                ],
-            }
-        ]
-    )
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="test-key",
-            openai_base_url="https://example.com",
-            openai_model="test-model",
-        )
-    )
-    gateway._client = lambda: client
+def test_llm_gateway_rejects_a_tool_call_without_id_before_execution():
+    client = ScriptedHTTPClient([_tool_call_response("", "result = {'executed': True}")])
+    gateway = _gateway(client)
     sandbox = RecordingSandbox()
 
-    with pytest.raises(LLMAPIError, match="without call_id"):
+    with pytest.raises(LLMAPIError, match="without id"):
         asyncio.run(
             gateway.chat_json_with_python(
                 "system",
@@ -164,68 +164,38 @@ def test_llm_gateway_rejects_a_tool_call_without_call_id_before_execution():
     assert sandbox.codes == []
 
 
-def test_llm_gateway_returns_invalid_tool_arguments_without_execution():
+def test_llm_gateway_feeds_invalid_tool_arguments_back_without_executing_sandbox():
+    # 参数非法（多了一个字段）不再直接崩溃：把错误回喂给模型，让它据此产出最终 JSON。
     client = ScriptedHTTPClient(
         [
-            {
-                "id": "resp-tool",
-                "status": "completed",
-                "output": [
-                    {
-                        "call_id": "call-1",
-                        "type": "function_call",
-                        "name": "python_verify",
-                        "arguments": json.dumps(
-                            {
-                                "code": "result = {'executed': True}",
-                                "unexpected": "field",
-                            }
-                        ),
-                    }
-                ],
-            },
-            _final_response('{"confidence": 0.99, "verified": true}'),
+            _tool_call_response("call-1", "result = {'executed': True}", extra_args={"unexpected": "field"}),
+            _chat_completion('{"confidence": 0.99, "verified": true}'),
         ]
     )
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="test-key",
-            openai_base_url="https://example.com",
-            openai_model="test-model",
-        )
-    )
-    gateway._client = lambda: client
+    gateway = _gateway(client)
     sandbox = RecordingSandbox()
 
-    with pytest.raises(LLMAPIError, match="without successful python verification"):
-        asyncio.run(
-            gateway.chat_json_with_python(
-                "system",
-                "verify this",
-                sandbox,
-                temperature=0.1,
-                max_tokens=500,
-            )
+    result = asyncio.run(
+        gateway.chat_json_with_python(
+            "system",
+            "verify this",
+            sandbox,
+            temperature=0.1,
+            max_tokens=500,
         )
+    )
 
+    assert result == {"confidence": 0.99, "verified": True}
+    # 非法参数不进沙箱
     assert sandbox.codes == []
-    assert client.calls[1]["json"]["tool_choice"] == {"type": "function", "name": "python_verify"}
-    tool_output = json.loads(client.calls[1]["json"]["input"][-1]["output"])
+    tool_output = json.loads(client.calls[1]["json"]["messages"][-1]["content"])
     assert tool_output["ok"] is False
     assert "exactly one code field" in tool_output["error"]
 
 
-def test_llm_gateway_sends_multimodal_input_through_responses_api():
-    client = ScriptedHTTPClient([_final_response('{"confidence": 0.99, "verified": true}')])
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="test-key",
-            openai_base_url="https://example.com",
-            openai_model="test-model",
-            openai_reasoning_effort="high",
-        )
-    )
-    gateway._client = lambda: client
+def test_llm_gateway_sends_multimodal_input_through_chat_completions():
+    client = ScriptedHTTPClient([_chat_completion('{"confidence": 0.99, "verified": true}')])
+    gateway = _gateway(client, vision_base_url="https://vision.example.com/v1")
 
     result = asyncio.run(
         gateway.vision_json_many(
@@ -239,31 +209,19 @@ def test_llm_gateway_sends_multimodal_input_through_responses_api():
 
     assert result == {"confidence": 0.99, "verified": True}
     request = client.calls[0]["json"]
-    assert request["instructions"] == "grade every page"
-    content = request["input"][0]["content"]
-    assert [item["type"] for item in content] == [
-        "input_text",
-        "input_image",
-        "input_image",
-    ]
-    assert [item["image_url"] for item in content[1:]] == [
+    assert client.calls[0]["url"] == "https://vision.example.com/v1/chat/completions"
+    assert request["messages"][0] == {"role": "system", "content": "grade every page"}
+    content = request["messages"][1]["content"]
+    assert [item["type"] for item in content] == ["text", "image_url", "image_url"]
+    assert [item["image_url"]["url"] for item in content[1:]] == [
         "data:image/png;base64,AAAA",
         "data:image/png;base64,BBBB",
     ]
-    assert all(item["detail"] == "auto" for item in content[1:])
 
 
-def test_llm_gateway_omits_reasoning_for_non_reasoning_models():
-    client = ScriptedHTTPClient([_final_response('{"answer": "ok"}')])
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="test-key",
-            openai_base_url="https://example.com",
-            openai_model="non-reasoning-model",
-            openai_reasoning_effort="none",
-        )
-    )
-    gateway._client = lambda: client
+def test_llm_gateway_chat_json_sends_temperature_and_omits_responses_only_fields():
+    client = ScriptedHTTPClient([_chat_completion('{"answer": "ok"}')])
+    gateway = _gateway(client, openai_model="non-reasoning-model", openai_reasoning_effort="none")
 
     result = asyncio.run(
         gateway.chat_json(
@@ -276,8 +234,11 @@ def test_llm_gateway_omits_reasoning_for_non_reasoning_models():
 
     assert result == {"answer": "ok"}
     request = client.calls[0]["json"]
+    # Chat Completions 请求：无 Responses-API 专有字段
     assert "reasoning" not in request
+    assert "store" not in request
     assert request["temperature"] == 0.25
+    assert request["messages"][0]["role"] == "system"
 
 
 def test_llm_gateway_redacts_credentials_echoed_by_provider_errors():
@@ -285,14 +246,7 @@ def test_llm_gateway_redacts_credentials_echoed_by_provider_errors():
         [{"error": {"message": "request blocked for secret-test-key"}}],
         status_codes=[403],
     )
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="secret-test-key",
-            openai_base_url="https://example.com",
-            openai_model="test-model",
-        )
-    )
-    gateway._client = lambda: client
+    gateway = _gateway(client, openai_api_key="secret-test-key")
 
     with pytest.raises(LLMAPIError, match="HTTP 403: request blocked") as raised:
         asyncio.run(
@@ -308,32 +262,12 @@ def test_llm_gateway_redacts_credentials_echoed_by_provider_errors():
     assert "[REDACTED]" in str(raised.value)
 
 
-def test_llm_gateway_rejects_incomplete_responses_even_with_parseable_output():
-    client = ScriptedHTTPClient(
-        [
-            {
-                "id": "resp-incomplete",
-                "status": "incomplete",
-                "incomplete_details": {"reason": "max_output_tokens"},
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [{"type": "output_text", "text": '{"confidence": 0.1}'}],
-                    }
-                ],
-            }
-        ]
-    )
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="test-key",
-            openai_base_url="https://example.com",
-            openai_model="test-model",
-        )
-    )
-    gateway._client = lambda: client
+def test_llm_gateway_rejects_a_response_with_no_choices():
+    # Chat Completions 没有 choices（也没有 output_text 兜底）→ 明确报错，不静默返回空。
+    client = ScriptedHTTPClient([{"id": "chatcmpl-empty", "choices": []}])
+    gateway = _gateway(client)
 
-    with pytest.raises(LLMAPIError, match="incomplete.*max_output_tokens"):
+    with pytest.raises(LLMAPIError, match="does not contain output text"):
         asyncio.run(
             gateway.chat_json(
                 "system",
@@ -344,23 +278,20 @@ def test_llm_gateway_rejects_incomplete_responses_even_with_parseable_output():
         )
 
 
-def test_llm_gateway_rejects_a_response_without_status():
-    client = ScriptedHTTPClient([{"output_text": '{"confidence": 0.99}'}])
-    gateway = LLMGateway(
-        Settings(
-            openai_api_key="test-key",
-            openai_base_url="https://example.com",
-            openai_model="test-model",
-        )
-    )
-    gateway._client = lambda: client
+def test_llm_gateway_python_loop_raises_when_provider_returns_no_choices():
+    client = ScriptedHTTPClient([{"id": "chatcmpl-empty", "choices": []}])
+    gateway = _gateway(client)
+    sandbox = RecordingSandbox()
 
-    with pytest.raises(LLMAPIError, match="missing or invalid status"):
+    with pytest.raises(LLMAPIError, match="no choices"):
         asyncio.run(
-            gateway.chat_json(
+            gateway.chat_json_with_python(
                 "system",
-                "request",
-                temperature=0,
-                max_tokens=100,
+                "verify this",
+                sandbox,
+                temperature=0.1,
+                max_tokens=500,
             )
         )
+
+    assert sandbox.codes == []
